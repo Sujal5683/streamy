@@ -57,6 +57,20 @@ var operatorUser = new UserIdentity
 };
 store.SaveUser(operatorUser);
 
+// Health & Liveness
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+// Heartbeat Endpoint
+app.MapPost("/api/v1/devices/{deviceId}/heartbeat", (string deviceId, IControlPlaneStore s) =>
+{
+    var device = s.GetDevice(deviceId);
+    if (device == null) return Results.NotFound();
+    device.LastHeartbeatUtc = DateTime.UtcNow;
+    device.Status = DeviceStatus.Online;
+    s.SaveDevice(device);
+    return Results.Ok(new { status = "acknowledged", timestamp = DateTime.UtcNow });
+});
+
 // 1. Auth Endpoint: Mock / OIDC Exchange
 app.MapPost("/api/v1/auth/token", (AuthRequest req, IControlPlaneStore s) =>
 {

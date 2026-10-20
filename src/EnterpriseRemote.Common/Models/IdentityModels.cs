@@ -1,7 +1,9 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace EnterpriseRemote.Common.Models;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum UserRole
 {
     Operator,
@@ -11,6 +13,7 @@ public enum UserRole
 }
 
 [Flags]
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SessionCapabilities
 {
     None = 0,
@@ -21,6 +24,7 @@ public enum SessionCapabilities
     AdminOperations = 16
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DeviceStatus
 {
     Offline,
