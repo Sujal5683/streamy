@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v8.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v8.0": {
+      "EnterpriseRemote.Controller/1.0.0": {
+        "dependencies": {
+          "EnterpriseRemote.Common": "1.0.0"
+        },
+        "runtime": {
+          "EnterpriseRemote.Controller.dll": {}
+        }
+      },
+      "EnterpriseRemote.Common/1.0.0": {
+        "runtime": {
+          "EnterpriseRemote.Common.dll": {
+            "assemblyVersion": "1.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "EnterpriseRemote.Controller/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "EnterpriseRemote.Common/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
