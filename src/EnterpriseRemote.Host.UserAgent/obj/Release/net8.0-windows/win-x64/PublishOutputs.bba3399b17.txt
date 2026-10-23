@@ -1,9 +1,0 @@
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\app.ico
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\D3DCompiler_47_cor3.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\PenImc_cor3.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\PresentationNative_cor3.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\vcruntime140_cor3.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\wpfgfx_cor3.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Common.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.exe

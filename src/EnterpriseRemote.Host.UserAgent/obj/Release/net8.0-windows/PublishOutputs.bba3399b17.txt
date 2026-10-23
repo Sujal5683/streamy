@@ -1,9 +1,0 @@
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.exe
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\app.ico
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.deps.json
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.runtimeconfig.json
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Host.UserAgent.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\FontAwesome.Sharp.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Common.dll
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\UserAgent\EnterpriseRemote.Common.pdb

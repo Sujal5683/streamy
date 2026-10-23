@@ -1,3 +1,0 @@
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Common.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.exe

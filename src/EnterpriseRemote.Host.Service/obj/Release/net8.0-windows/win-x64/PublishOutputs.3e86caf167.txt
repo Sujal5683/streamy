@@ -1,3 +1,0 @@
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\scratch\test_publish\EnterpriseRemote.Host.Service.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\scratch\test_publish\EnterpriseRemote.Common.pdb
-C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\scratch\test_publish\EnterpriseRemote.Host.Service.exe
