@@ -1,0 +1,3 @@
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\EnterpriseRemote.Host.Service.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\EnterpriseRemote.Common.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\EnterpriseRemote.Host.Service.exe

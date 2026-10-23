@@ -1,0 +1,8 @@
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\EnterpriseRemote.Host.UserAgent.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\D3DCompiler_47_cor3.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\PenImc_cor3.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\PresentationNative_cor3.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\vcruntime140_cor3.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\wpfgfx_cor3.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\EnterpriseRemote.Common.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\RemotePC_Package\EnterpriseRemote.Host.UserAgent.exe

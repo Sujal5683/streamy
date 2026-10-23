@@ -1,0 +1,8 @@
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.exe
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\app.ico
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.deps.json
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.runtimeconfig.json
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Host.Service.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Common.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\HostService\EnterpriseRemote.Common.pdb

@@ -1,0 +1,3 @@
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\scratch\test_publish\EnterpriseRemote.Host.UserAgent.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\scratch\test_publish\EnterpriseRemote.Common.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\scratch\test_publish\EnterpriseRemote.Host.UserAgent.exe

@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "qXkaZCy8BwRo69p24TQP+CjBeZh3y3ayKI63xubnS30=",
+  "Source": "EnterpriseRemote.ControlPlane",
+  "BasePath": "_content/EnterpriseRemote.ControlPlane",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

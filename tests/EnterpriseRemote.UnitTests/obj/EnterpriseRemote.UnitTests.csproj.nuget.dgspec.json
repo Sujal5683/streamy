@@ -1,0 +1,431 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\tests\\EnterpriseRemote.UnitTests\\EnterpriseRemote.UnitTests.csproj": {}
+  },
+  "projects": {
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj",
+        "projectName": "EnterpriseRemote.Common",
+        "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj",
+        "packagesPath": "C:\\Users\\sujal\\.nuget\\packages\\",
+        "outputPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\sujal\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Controller\\EnterpriseRemote.Controller.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Controller\\EnterpriseRemote.Controller.csproj",
+        "projectName": "EnterpriseRemote.Controller",
+        "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Controller\\EnterpriseRemote.Controller.csproj",
+        "packagesPath": "C:\\Users\\sujal\\.nuget\\packages\\",
+        "outputPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Controller\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\sujal\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0-windows"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0-windows7.0": {
+            "targetAlias": "net8.0-windows",
+            "projectReferences": {
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "dependencies": {
+            "FontAwesome.Sharp": {
+              "target": "Package",
+              "version": "[6.6.0, )"
+            },
+            "ReaLTaiizor": {
+              "target": "Package",
+              "version": "[3.8.2.1, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            },
+            "Microsoft.WindowsDesktop.App.WindowsForms": {
+              "privateAssets": "none"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.ControlPlane\\EnterpriseRemote.ControlPlane.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.ControlPlane\\EnterpriseRemote.ControlPlane.csproj",
+        "projectName": "EnterpriseRemote.ControlPlane",
+        "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.ControlPlane\\EnterpriseRemote.ControlPlane.csproj",
+        "packagesPath": "C:\\Users\\sujal\\.nuget\\packages\\",
+        "outputPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.ControlPlane\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\sujal\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.AspNetCore.App": {
+              "privateAssets": "none"
+            },
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.Service\\EnterpriseRemote.Host.Service.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.Service\\EnterpriseRemote.Host.Service.csproj",
+        "projectName": "EnterpriseRemote.Host.Service",
+        "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.Service\\EnterpriseRemote.Host.Service.csproj",
+        "packagesPath": "C:\\Users\\sujal\\.nuget\\packages\\",
+        "outputPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.Service\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\sujal\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0-windows"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0-windows7.0": {
+            "targetAlias": "net8.0-windows",
+            "projectReferences": {
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.UserAgent\\EnterpriseRemote.Host.UserAgent.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.UserAgent\\EnterpriseRemote.Host.UserAgent.csproj",
+        "projectName": "EnterpriseRemote.Host.UserAgent",
+        "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.UserAgent\\EnterpriseRemote.Host.UserAgent.csproj",
+        "packagesPath": "C:\\Users\\sujal\\.nuget\\packages\\",
+        "outputPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.UserAgent\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\sujal\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0-windows"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0-windows7.0": {
+            "targetAlias": "net8.0-windows",
+            "projectReferences": {
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "dependencies": {
+            "FontAwesome.Sharp": {
+              "target": "Package",
+              "version": "[6.6.0, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            },
+            "Microsoft.WindowsDesktop.App.WindowsForms": {
+              "privateAssets": "none"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\tests\\EnterpriseRemote.UnitTests\\EnterpriseRemote.UnitTests.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\tests\\EnterpriseRemote.UnitTests\\EnterpriseRemote.UnitTests.csproj",
+        "projectName": "EnterpriseRemote.UnitTests",
+        "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\tests\\EnterpriseRemote.UnitTests\\EnterpriseRemote.UnitTests.csproj",
+        "packagesPath": "C:\\Users\\sujal\\.nuget\\packages\\",
+        "outputPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\tests\\EnterpriseRemote.UnitTests\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\sujal\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0-windows"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0-windows7.0": {
+            "targetAlias": "net8.0-windows",
+            "projectReferences": {
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Common\\EnterpriseRemote.Common.csproj"
+              },
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Controller\\EnterpriseRemote.Controller.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Controller\\EnterpriseRemote.Controller.csproj"
+              },
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.ControlPlane\\EnterpriseRemote.ControlPlane.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.ControlPlane\\EnterpriseRemote.ControlPlane.csproj"
+              },
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.Service\\EnterpriseRemote.Host.Service.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.Service\\EnterpriseRemote.Host.Service.csproj"
+              },
+              "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.UserAgent\\EnterpriseRemote.Host.UserAgent.csproj": {
+                "projectPath": "C:\\My Projects\\SECURE AND ENTERPRISE STREAMING APP\\src\\EnterpriseRemote.Host.UserAgent\\EnterpriseRemote.Host.UserAgent.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "dependencies": {
+            "Microsoft.NET.Test.Sdk": {
+              "target": "Package",
+              "version": "[17.8.0, )"
+            },
+            "coverlet.collector": {
+              "target": "Package",
+              "version": "[6.0.0, )"
+            },
+            "xunit": {
+              "target": "Package",
+              "version": "[2.5.3, )"
+            },
+            "xunit.runner.visualstudio": {
+              "target": "Package",
+              "version": "[2.5.3, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.424/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

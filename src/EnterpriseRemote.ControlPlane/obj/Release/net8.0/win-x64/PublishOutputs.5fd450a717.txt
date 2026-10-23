@@ -1,0 +1,7 @@
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\appsettings.Development.json
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\appsettings.json
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\appsettings.Production.json
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\EnterpriseRemote.ControlPlane.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\aspnetcorev2_inprocess.dll
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\EnterpriseRemote.Common.pdb
+C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\dist\ControlPlane\EnterpriseRemote.ControlPlane.exe

@@ -1,0 +1,13 @@
+System.NullReferenceException: Object reference not set to an instance of an object.
+   at EnterpriseRemote.Controller.UI.Components.CyberTextBox.AdjustLayout() in C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\src\EnterpriseRemote.Controller\UI\Components\CyberTextBox.cs:line 129
+   at EnterpriseRemote.Controller.UI.Components.CyberTextBox.OnResize(EventArgs e) in C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\src\EnterpriseRemote.Controller\UI\Components\CyberTextBox.cs:line 139
+   at System.Windows.Forms.Control.OnSizeChanged(EventArgs e)
+   at System.Windows.Forms.Control.UpdateBounds(Int32 x, Int32 y, Int32 width, Int32 height, Int32 clientWidth, Int32 clientHeight)
+   at System.Windows.Forms.Control.UpdateBounds(Int32 x, Int32 y, Int32 width, Int32 height)
+   at System.Windows.Forms.Control.SetBoundsCore(Int32 x, Int32 y, Int32 width, Int32 height, BoundsSpecified specified)
+   at System.Windows.Forms.Control.SetBounds(Int32 x, Int32 y, Int32 width, Int32 height, BoundsSpecified specified)
+   at System.Windows.Forms.Control.set_Size(Size value)
+   at EnterpriseRemote.Controller.UI.Components.CyberTextBox..ctor() in C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\src\EnterpriseRemote.Controller\UI\Components\CyberTextBox.cs:line 101
+   at EnterpriseRemote.Controller.UI.RemoteViewerForm.InitializeComponent() in C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\src\EnterpriseRemote.Controller\UI\RemoteViewerForm.cs:line 469
+   at EnterpriseRemote.Controller.UI.RemoteViewerForm..ctor() in C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\src\EnterpriseRemote.Controller\UI\RemoteViewerForm.cs:line 129
+   at EnterpriseRemote.Controller.Program.Main(String[] args) in C:\My Projects\SECURE AND ENTERPRISE STREAMING APP\src\EnterpriseRemote.Controller\Program.cs:line 33
