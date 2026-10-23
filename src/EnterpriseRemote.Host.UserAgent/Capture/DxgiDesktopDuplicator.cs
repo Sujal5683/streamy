@@ -28,6 +28,8 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
 
     public bool Initialize()
     {
+        CleanupDxgiResources();
+
         // Try native DXGI Desktop Duplication first
         try
         {
@@ -43,7 +45,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             Debug.WriteLine($"DXGI initialization exception: {ex.Message}");
         }
 
-        // Seamless fallback to GDI Desktop Capturer if DXGI is unavailable (e.g. Session 0 or VM)
+        // Seamless fallback to GDI Desktop Capturer if DXGI is unavailable (e.g. Session 0, VM, or custom exam desktop)
         try
         {
             if (_fallbackCapturer.Initialize())
@@ -62,26 +64,96 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
         return false;
     }
 
+    public bool RebindToActiveDesktop()
+    {
+        if (IsUsingFallback)
+        {
+            return (_fallbackCapturer as GdiDesktopCapturer)?.RebindToActiveDesktop() ?? _fallbackCapturer.Initialize();
+        }
+        CleanupDxgiResources();
+        return Initialize();
+    }
+
     private unsafe bool TryInitializeDxgi()
     {
-        // 1. Create D3D11 Device (Try Hardware first, then WARP)
-        int hr = D3D11CreateDevice(
-            IntPtr.Zero,
-            D3D_DRIVER_TYPE_HARDWARE,
-            IntPtr.Zero,
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            null,
-            0,
-            D3D11_SDK_VERSION,
-            out _d3dDevice,
-            out _,
-            out _d3dContext);
+        // 1. Multi-adapter discovery via CreateDXGIFactory1 to find the GPU driving the active display
+        IntPtr pFactory = IntPtr.Zero;
+        IntPtr pTargetAdapter = IntPtr.Zero;
+        IntPtr pTargetOutput = IntPtr.Zero;
+        Guid iidFactory1 = new("770aae78-f26f-4dba-a829-253c83d1b387");
 
-        if (hr != S_OK || _d3dDevice == IntPtr.Zero)
+        try
+        {
+            if (CreateDXGIFactory1(ref iidFactory1, out pFactory) == S_OK && pFactory != IntPtr.Zero)
+            {
+                IntPtr* vtblFactory = *(IntPtr**)pFactory;
+                var enumAdapters1 = (delegate* unmanaged[Stdcall]<IntPtr, uint, out IntPtr, int>)vtblFactory[12];
+
+                for (uint adapterIndex = 0; ; adapterIndex++)
+                {
+                    IntPtr pCurrentAdapter = IntPtr.Zero;
+                    int hrEnum = enumAdapters1(pFactory, adapterIndex, out pCurrentAdapter);
+                    if (hrEnum != S_OK || pCurrentAdapter == IntPtr.Zero) break;
+
+                    // Enumerate outputs for this adapter (Slot 7 of IDXGIAdapter)
+                    IntPtr* vtblAdapter = *(IntPtr**)pCurrentAdapter;
+                    var enumOutputs = (delegate* unmanaged[Stdcall]<IntPtr, uint, out IntPtr, int>)vtblAdapter[7];
+
+                    for (uint outputIndex = 0; ; outputIndex++)
+                    {
+                        IntPtr pCurrentOutput = IntPtr.Zero;
+                        int hrOut = enumOutputs(pCurrentAdapter, outputIndex, out pCurrentOutput);
+                        if (hrOut != S_OK || pCurrentOutput == IntPtr.Zero) break;
+
+                        // Check output description (Slot 7 of IDXGIOutput)
+                        IntPtr* vtblOutput = *(IntPtr**)pCurrentOutput;
+                        var getDesc = (delegate* unmanaged[Stdcall]<IntPtr, out DXGI_OUTPUT_DESC, int>)vtblOutput[7];
+                        if (getDesc(pCurrentOutput, out DXGI_OUTPUT_DESC outDesc) == S_OK && outDesc.AttachedToDesktop)
+                        {
+                            pTargetAdapter = pCurrentAdapter;
+                            pTargetOutput = pCurrentOutput;
+                            break;
+                        }
+
+                        Marshal.Release(pCurrentOutput);
+                    }
+
+                    if (pTargetAdapter != IntPtr.Zero) break;
+                    Marshal.Release(pCurrentAdapter);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Multi-adapter enumeration notice: {ex.Message}");
+        }
+        finally
+        {
+            if (pFactory != IntPtr.Zero) Marshal.Release(pFactory);
+        }
+
+        // 2. Create D3D11 Device (on found display-driving adapter or default fallback)
+        int hr;
+        if (pTargetAdapter != IntPtr.Zero)
+        {
+            // Note: When pAdapter is non-null, DriverType MUST be D3D_DRIVER_TYPE_UNKNOWN (0)
+            hr = D3D11CreateDevice(
+                pTargetAdapter,
+                D3D_DRIVER_TYPE_UNKNOWN,
+                IntPtr.Zero,
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                null,
+                0,
+                D3D11_SDK_VERSION,
+                out _d3dDevice,
+                out _,
+                out _d3dContext);
+        }
+        else
         {
             hr = D3D11CreateDevice(
                 IntPtr.Zero,
-                D3D_DRIVER_TYPE_WARP,
+                D3D_DRIVER_TYPE_HARDWARE,
                 IntPtr.Zero,
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 null,
@@ -93,36 +165,61 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
 
             if (hr != S_OK || _d3dDevice == IntPtr.Zero)
             {
-                return false;
+                hr = D3D11CreateDevice(
+                    IntPtr.Zero,
+                    D3D_DRIVER_TYPE_WARP,
+                    IntPtr.Zero,
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                    null,
+                    0,
+                    D3D11_SDK_VERSION,
+                    out _d3dDevice,
+                    out _,
+                    out _d3dContext);
             }
         }
 
-        IntPtr pDxgiDevice = IntPtr.Zero;
-        IntPtr pDxgiAdapter = IntPtr.Zero;
-        IntPtr pDxgiOutput = IntPtr.Zero;
-        IntPtr pDxgiOutput1 = IntPtr.Zero;
+        if (hr != S_OK || _d3dDevice == IntPtr.Zero)
+        {
+            if (pTargetOutput != IntPtr.Zero) Marshal.Release(pTargetOutput);
+            if (pTargetAdapter != IntPtr.Zero) Marshal.Release(pTargetAdapter);
+            return false;
+        }
 
+        IntPtr pDxgiOutput1 = IntPtr.Zero;
         try
         {
-            Guid iidDxgiDevice = new("54ec77fa-1377-44e6-8c32-88fd5f44c84c");
-            hr = Marshal.QueryInterface(_d3dDevice, ref iidDxgiDevice, out pDxgiDevice);
-            if (hr != S_OK || pDxgiDevice == IntPtr.Zero) return false;
+            if (pTargetOutput == IntPtr.Zero)
+            {
+                // Fallback to querying output from device's adapter
+                IntPtr pDxgiDevice = IntPtr.Zero;
+                IntPtr pDxgiAdapter = IntPtr.Zero;
+                try
+                {
+                    Guid iidDxgiDevice = new("54ec77fa-1377-44e6-8c32-88fd5f44c84c");
+                    hr = Marshal.QueryInterface(_d3dDevice, ref iidDxgiDevice, out pDxgiDevice);
+                    if (hr != S_OK || pDxgiDevice == IntPtr.Zero) return false;
 
-            // Direct vtable call: IDXGIDevice::GetAdapter (Slot 7)
-            IntPtr* vtblDxgiDevice = *(IntPtr**)pDxgiDevice;
-            var getAdapter = (delegate* unmanaged[Stdcall]<IntPtr, out IntPtr, int>)vtblDxgiDevice[7];
-            hr = getAdapter(pDxgiDevice, out pDxgiAdapter);
-            if (hr != S_OK || pDxgiAdapter == IntPtr.Zero) return false;
+                    IntPtr* vtblDxgiDevice = *(IntPtr**)pDxgiDevice;
+                    var getAdapter = (delegate* unmanaged[Stdcall]<IntPtr, out IntPtr, int>)vtblDxgiDevice[7];
+                    hr = getAdapter(pDxgiDevice, out pDxgiAdapter);
+                    if (hr != S_OK || pDxgiAdapter == IntPtr.Zero) return false;
 
-            // Direct vtable call: IDXGIAdapter::EnumOutputs (Slot 7)
-            IntPtr* vtblDxgiAdapter = *(IntPtr**)pDxgiAdapter;
-            var enumOutputs = (delegate* unmanaged[Stdcall]<IntPtr, uint, out IntPtr, int>)vtblDxgiAdapter[7];
-            hr = enumOutputs(pDxgiAdapter, 0, out pDxgiOutput);
-            if (hr != S_OK || pDxgiOutput == IntPtr.Zero) return false;
+                    IntPtr* vtblDxgiAdapter = *(IntPtr**)pDxgiAdapter;
+                    var enumOutputs = (delegate* unmanaged[Stdcall]<IntPtr, uint, out IntPtr, int>)vtblDxgiAdapter[7];
+                    hr = enumOutputs(pDxgiAdapter, 0, out pTargetOutput);
+                    if (hr != S_OK || pTargetOutput == IntPtr.Zero) return false;
+                }
+                finally
+                {
+                    if (pDxgiAdapter != IntPtr.Zero) Marshal.Release(pDxgiAdapter);
+                    if (pDxgiDevice != IntPtr.Zero) Marshal.Release(pDxgiDevice);
+                }
+            }
 
             // Query IDXGIOutput1
             Guid iidDxgiOutput1 = new("00cddea8-939b-4b83-a340-b1e03764a307");
-            hr = Marshal.QueryInterface(pDxgiOutput, ref iidDxgiOutput1, out pDxgiOutput1);
+            hr = Marshal.QueryInterface(pTargetOutput, ref iidDxgiOutput1, out pDxgiOutput1);
             if (hr != S_OK || pDxgiOutput1 == IntPtr.Zero) return false;
 
             // Direct vtable call: IDXGIOutput1::DuplicateOutput (Slot 22)
@@ -133,8 +230,8 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
 
             // Query DXGI_OUTDUPL_DESC (Slot 7 of IDXGIOutputDuplication)
             IntPtr* vtblDupl = *(IntPtr**)_dxgiOutputDuplication;
-            var getDesc = (delegate* unmanaged[Stdcall]<IntPtr, out DXGI_OUTDUPL_DESC, void>)vtblDupl[7];
-            getDesc(_dxgiOutputDuplication, out DXGI_OUTDUPL_DESC desc);
+            var getDuplDesc = (delegate* unmanaged[Stdcall]<IntPtr, out DXGI_OUTDUPL_DESC, void>)vtblDupl[7];
+            getDuplDesc(_dxgiOutputDuplication, out DXGI_OUTDUPL_DESC desc);
 
             _width = desc.ModeDesc.Width > 0 ? (int)desc.ModeDesc.Width : 1920;
             _height = desc.ModeDesc.Height > 0 ? (int)desc.ModeDesc.Height : 1080;
@@ -143,7 +240,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             Display = new DisplayInfo
             {
                 Index = 0,
-                DeviceName = @"\\.\DISPLAY1 (DXGI Output Duplication)",
+                DeviceName = @"\\.\DISPLAY1 (DXGI Multi-Adapter Duplication)",
                 Left = desc.DesktopCoordinates.Left,
                 Top = desc.DesktopCoordinates.Top,
                 Width = _width,
@@ -176,9 +273,8 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
         finally
         {
             if (pDxgiOutput1 != IntPtr.Zero) Marshal.Release(pDxgiOutput1);
-            if (pDxgiOutput != IntPtr.Zero) Marshal.Release(pDxgiOutput);
-            if (pDxgiAdapter != IntPtr.Zero) Marshal.Release(pDxgiAdapter);
-            if (pDxgiDevice != IntPtr.Zero) Marshal.Release(pDxgiDevice);
+            if (pTargetOutput != IntPtr.Zero) Marshal.Release(pTargetOutput);
+            if (pTargetAdapter != IntPtr.Zero) Marshal.Release(pTargetAdapter);
         }
     }
 
@@ -209,7 +305,11 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             }
             if (hr == DXGI_ERROR_ACCESS_LOST)
             {
-                return new CapturedFrame { Status = CaptureStatus.AccessLost };
+                // Active desktop switched (e.g. Safe Exam Browser started on dedicated desktop)
+                CleanupDxgiResources();
+                IsUsingFallback = true;
+                if (!_fallbackCapturer.IsInitialized) _fallbackCapturer.Initialize();
+                return _fallbackCapturer.CaptureFrame(timeoutMilliseconds);
             }
             if (hr != S_OK || pDesktopResource == IntPtr.Zero)
             {
@@ -295,6 +395,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
                 Buffer = frameCopy,
                 BufferLength = frameCopy.Length,
                 DirtyRects = dirtyRects,
+                ProtectedContentMaskedOut = frameInfo.ProtectedContentMaskedOut,
                 Pointer = new PointerInfo
                 {
                     Visible = frameInfo.PointerPosition.Visible,
@@ -319,7 +420,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
         }
     }
 
-    public void Dispose()
+    private void CleanupDxgiResources()
     {
         if (_stagingTexture != IntPtr.Zero)
         {
@@ -341,7 +442,11 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             Marshal.Release(_d3dDevice);
             _d3dDevice = IntPtr.Zero;
         }
+    }
 
+    public void Dispose()
+    {
+        CleanupDxgiResources();
         _fallbackCapturer.Dispose();
         IsInitialized = false;
     }
@@ -351,6 +456,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
     private const int DXGI_ERROR_WAIT_TIMEOUT = unchecked((int)0x887A0027);
     private const int DXGI_ERROR_ACCESS_LOST = unchecked((int)0x887A0026);
     private const uint D3D11_SDK_VERSION = 7;
+    private const uint D3D_DRIVER_TYPE_UNKNOWN = 0;
     private const uint D3D_DRIVER_TYPE_HARDWARE = 1;
     private const uint D3D_DRIVER_TYPE_WARP = 5;
     private const uint D3D11_CREATE_DEVICE_BGRA_SUPPORT = 0x20;
@@ -358,6 +464,20 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
     private const uint D3D11_USAGE_STAGING = 3;
     private const uint D3D11_CPU_ACCESS_READ = 0x20000;
     private const uint D3D11_MAP_READ = 1;
+
+    [DllImport("dxgi.dll", CallingConvention = CallingConvention.StdCall)]
+    private static extern int CreateDXGIFactory1(ref Guid riid, out IntPtr ppFactory);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DXGI_OUTPUT_DESC
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+        public RECT DesktopCoordinates;
+        public bool AttachedToDesktop;
+        public uint Rotation;
+        public IntPtr Monitor;
+    }
 
     [DllImport("d3d11.dll", CallingConvention = CallingConvention.StdCall)]
     private static extern int D3D11CreateDevice(

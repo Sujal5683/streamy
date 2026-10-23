@@ -10,7 +10,10 @@ public enum InputEventType : byte
     MouseButtonUp = 0x03,
     MouseWheel = 0x04,
     KeyDown = 0x10,
-    KeyUp = 0x11
+    KeyUp = 0x11,
+    StreamConfig = 0x35,
+    LatencyPing = 0x40,
+    LatencyPong = 0x41
 }
 
 public enum MouseButton : byte
@@ -50,6 +53,13 @@ public readonly record struct KeyboardInputPacket(
     uint UnicodeChar,
     ulong TimestampMillis);
 
+public readonly record struct StreamConfigPacket(
+    byte TargetFps,
+    byte Quality,
+    ushort MaxHeight,
+    byte LowLatencyMode,
+    ulong TimestampMillis);
+
 public enum ControlAction : byte
 {
     Ping = 0x01,
@@ -58,7 +68,8 @@ public enum ControlAction : byte
     ResumeSession = 0x11,
     TerminateSession = 0x12,
     SwitchDisplay = 0x20,
-    SetQualityProfile = 0x30
+    SetQualityProfile = 0x30,
+    SetStreamConfig = 0x35
 }
 
 public readonly record struct ControlPacket(
@@ -91,7 +102,7 @@ public static class DataChannelProtocol
 
     public static bool TryDeserializeMouse(ReadOnlySpan<byte> data, out MouseInputPacket packet)
     {
-        if (data.Length < 21)
+        if (data.Length < 21 || (data[0] != 0x01 && data[0] != 0x02 && data[0] != 0x03 && data[0] != 0x04))
         {
             packet = default;
             return false;
@@ -124,7 +135,7 @@ public static class DataChannelProtocol
 
     public static bool TryDeserializeKeyboard(ReadOnlySpan<byte> data, out KeyboardInputPacket packet)
     {
-        if (data.Length < 18)
+        if (data.Length < 18 || (data[0] != 0x10 && data[0] != 0x11))
         {
             packet = default;
             return false;
@@ -170,4 +181,67 @@ public static class DataChannelProtocol
         metrics = new TelemetryMetricsPacket(rtt, loss, fps, bitrate, ts);
         return true;
     }
+
+    // StreamConfig packet: 1 + 1 + 1 + 2 + 1 + 8 = 14 bytes
+    public static byte[] SerializeStreamConfig(in StreamConfigPacket packet)
+    {
+        byte[] buffer = new byte[14];
+        buffer[0] = (byte)InputEventType.StreamConfig;
+        buffer[1] = packet.TargetFps;
+        buffer[2] = packet.Quality;
+        BitConverter.TryWriteBytes(buffer.AsSpan(3, 2), packet.MaxHeight);
+        buffer[5] = packet.LowLatencyMode;
+        BitConverter.TryWriteBytes(buffer.AsSpan(6, 8), packet.TimestampMillis);
+        return buffer;
+    }
+
+    public static bool TryDeserializeStreamConfig(ReadOnlySpan<byte> data, out StreamConfigPacket packet)
+    {
+        if (data.Length < 14 || data[0] != (byte)InputEventType.StreamConfig)
+        {
+            packet = default;
+            return false;
+        }
+
+        byte targetFps = data[1];
+        byte quality = data[2];
+        ushort maxHeight = BitConverter.ToUInt16(data.Slice(3, 2));
+        byte lowLatencyMode = data[5];
+        ulong ts = BitConverter.ToUInt64(data.Slice(6, 8));
+
+        packet = new StreamConfigPacket(targetFps, quality, maxHeight, lowLatencyMode, ts);
+        return true;
+    }
+
+    // Latency Ping / Pong packets: 1 + 8 = 9 bytes
+    public static byte[] SerializeLatencyPing(ulong timestampMillis)
+    {
+        byte[] buffer = new byte[9];
+        buffer[0] = (byte)InputEventType.LatencyPing;
+        BitConverter.TryWriteBytes(buffer.AsSpan(1, 8), timestampMillis);
+        return buffer;
+    }
+
+    public static byte[] SerializeLatencyPong(ulong timestampMillis)
+    {
+        byte[] buffer = new byte[9];
+        buffer[0] = (byte)InputEventType.LatencyPong;
+        BitConverter.TryWriteBytes(buffer.AsSpan(1, 8), timestampMillis);
+        return buffer;
+    }
+
+    public static bool TryDeserializeLatencyPingPong(ReadOnlySpan<byte> data, out bool isPing, out ulong timestampMillis)
+    {
+        if (data.Length < 9 || (data[0] != (byte)InputEventType.LatencyPing && data[0] != (byte)InputEventType.LatencyPong))
+        {
+            isPing = false;
+            timestampMillis = 0;
+            return false;
+        }
+
+        isPing = data[0] == (byte)InputEventType.LatencyPing;
+        timestampMillis = BitConverter.ToUInt64(data.Slice(1, 8));
+        return true;
+    }
 }
+

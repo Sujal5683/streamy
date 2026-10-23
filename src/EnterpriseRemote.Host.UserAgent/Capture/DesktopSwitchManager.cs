@@ -1,0 +1,229 @@
+using System;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+namespace EnterpriseRemote.Host.UserAgent.Capture;
+
+/// <summary>
+/// Proactive detector and synchronizer for Win32 input desktop transitions.
+/// Secure exam browsers (such as Safe Exam Browser) isolate sessions by creating
+/// dedicated desktops (e.g. WinSta0\SafeExamBrowser or WinSta0\SEBDesktop) and invoking SwitchDesktop.
+/// This manager attaches capture and input worker threads directly to the active input desktop.
+/// </summary>
+public sealed class DesktopSwitchManager : IDisposable
+{
+    private readonly object _lock = new();
+    private string _currentDesktopName = "Default";
+    private System.Threading.Timer? _pollTimer;
+    private bool _isDisposed;
+
+    public string CurrentDesktopName
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _currentDesktopName;
+            }
+        }
+    }
+
+    public event Action<string>? OnDesktopChanged;
+
+    public void StartMonitoring(int intervalMs = 250)
+    {
+        _pollTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                CheckAndSyncDesktop(out string _);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Desktop switch check notice: {ex.Message}");
+            }
+        }, null, 100, intervalMs);
+    }
+
+    /// <summary>
+    /// Checks if the active input desktop has changed from the current desktop.
+    /// If changed, attaches the calling thread and raises OnDesktopChanged.
+    /// </summary>
+    public bool CheckAndSyncDesktop(out string activeName)
+    {
+        activeName = "Default";
+        IntPtr hInputDesktop = OpenActiveInputDesktop();
+        if (hInputDesktop == IntPtr.Zero)
+        {
+            lock (_lock)
+            {
+                activeName = _currentDesktopName;
+            }
+            return false;
+        }
+
+        try
+        {
+            string name = QueryDesktopName(hInputDesktop);
+            if (string.IsNullOrEmpty(name)) name = "UnknownDesktop";
+
+            bool changed = false;
+            lock (_lock)
+            {
+                if (!string.Equals(_currentDesktopName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    Debug.WriteLine($"[+] Active Win32 desktop transition detected: '{_currentDesktopName}' -> '{name}'");
+                    _currentDesktopName = name;
+                    changed = true;
+                }
+                activeName = _currentDesktopName;
+            }
+
+            if (changed)
+            {
+                AttachThreadToDesktop(hInputDesktop);
+                OnDesktopChanged?.Invoke(name);
+                return true;
+            }
+
+            return false;
+        }
+        finally
+        {
+            CloseDesktop(hInputDesktop);
+        }
+    }
+
+    /// <summary>
+    /// Attaches the calling thread to the currently active input desktop.
+    /// Note: The calling thread must not have any top-level windows or hooks created on it.
+    /// </summary>
+    public static bool AttachCallingThreadToInputDesktop(out string desktopName)
+    {
+        desktopName = "Default";
+        IntPtr hDesktop = OpenActiveInputDesktop();
+        if (hDesktop == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            desktopName = QueryDesktopName(hDesktop);
+            return AttachThreadToDesktop(hDesktop);
+        }
+        finally
+        {
+            CloseDesktop(hDesktop);
+        }
+    }
+
+    public static bool AttachThreadToDesktop(IntPtr hDesktop)
+    {
+        if (hDesktop == IntPtr.Zero) return false;
+        bool result = SetThreadDesktop(hDesktop);
+        if (!result)
+        {
+            int err = Marshal.GetLastWin32Error();
+            Debug.WriteLine($"SetThreadDesktop warning: error code {err} (170=ERROR_BUSY if thread owns windows)");
+        }
+        return result;
+    }
+
+    public static IntPtr OpenActiveInputDesktop()
+    {
+        try
+        {
+            IntPtr hWinSta = OpenWindowStation("WinSta0", false, WINSTA_ALL_ACCESS);
+            if (hWinSta != IntPtr.Zero)
+            {
+                SetProcessWindowStation(hWinSta);
+                CloseWindowStation(hWinSta);
+            }
+        }
+        catch { }
+
+        // Tier 1: Request full control
+        IntPtr hDesktop = OpenInputDesktop(0, false, DESKTOP_ALL_ACCESS);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 2: Read / Switch / Execute permissions
+        uint desired = DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP | DESKTOP_WRITEOBJECTS | GENERIC_READ | GENERIC_EXECUTE;
+        hDesktop = OpenInputDesktop(0, false, desired);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 3: Minimal read access
+        return OpenInputDesktop(0, false, DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP);
+    }
+
+    public static string QueryDesktopName(IntPtr hDesktop)
+    {
+        if (hDesktop == IntPtr.Zero) return string.Empty;
+
+        uint needed = 0;
+        GetUserObjectInformation(hDesktop, UOI_NAME, IntPtr.Zero, 0, out needed);
+        if (needed == 0) return string.Empty;
+
+        IntPtr buffer = Marshal.AllocHGlobal((int)needed);
+        try
+        {
+            if (GetUserObjectInformation(hDesktop, UOI_NAME, buffer, needed, out _))
+            {
+                return Marshal.PtrToStringUni(buffer) ?? string.Empty;
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+
+        return string.Empty;
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed) return;
+        _isDisposed = true;
+        _pollTimer?.Dispose();
+    }
+
+    #region Win32 P/Invoke
+    private const uint UOI_NAME = 2;
+    private const uint DESKTOP_READOBJECTS = 0x0001;
+    private const uint DESKTOP_CREATEWINDOW = 0x0002;
+    private const uint DESKTOP_CREATEMENU = 0x0004;
+    private const uint DESKTOP_HOOKCONTROL = 0x0008;
+    private const uint DESKTOP_JOURNALRECORD = 0x0010;
+    private const uint DESKTOP_JOURNALPLAYBACK = 0x0020;
+    private const uint DESKTOP_ENUMERATE = 0x0040;
+    private const uint DESKTOP_WRITEOBJECTS = 0x0080;
+    private const uint DESKTOP_SWITCHDESKTOP = 0x0100;
+    private const uint DESKTOP_ALL_ACCESS = 0x01FF;
+    private const uint GENERIC_READ = 0x80000000;
+    private const uint GENERIC_EXECUTE = 0x20000000;
+    private const uint WINSTA_ALL_ACCESS = 0x037F;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenWindowStation(string lpszWinSta, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessWindowStation(IntPtr hWinSta);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool CloseWindowStation(IntPtr hWinSta);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetThreadDesktop(IntPtr hDesktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool CloseDesktop(IntPtr hDesktop);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetUserObjectInformation(IntPtr hObj, uint nIndex, IntPtr pvInfo, uint nLength, out uint lpnLengthNeeded);
+    #endregion
+}

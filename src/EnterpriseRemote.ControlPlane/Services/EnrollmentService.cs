@@ -10,6 +10,7 @@ namespace EnterpriseRemote.ControlPlane.Services;
 public readonly record struct EnrollmentRedemptionResult(
     bool Success,
     string? DeviceId,
+    string? PermanentAccessToken,
     string? ErrorMessage);
 
 public sealed class EnrollmentService
@@ -75,13 +76,13 @@ public sealed class EnrollmentService
         // 1. Enforce Rate Limiting per Client IP
         if (IsRateLimited(clientIp))
         {
-            return new EnrollmentRedemptionResult(false, null, "Rate limit exceeded. Too many enrollment attempts.");
+            return new EnrollmentRedemptionResult(false, null, null, "Rate limit exceeded. Too many enrollment attempts.");
         }
 
         // 2. Validate Public Key Format
         if (string.IsNullOrWhiteSpace(publicKeyPem) || !publicKeyPem.Contains("PUBLIC KEY"))
         {
-            return new EnrollmentRedemptionResult(false, null, "Invalid device cryptographic public key.");
+            return new EnrollmentRedemptionResult(false, null, null, "Invalid device cryptographic public key.");
         }
 
         // 3. Hash Invitation Token and Check Expiry / Redemption
@@ -91,27 +92,28 @@ public sealed class EnrollmentService
         if (invitation == null)
         {
             RecordAttempt(clientIp);
-            return new EnrollmentRedemptionResult(false, null, "Invalid enrollment invitation code.");
+            return new EnrollmentRedemptionResult(false, null, null, "Invalid enrollment invitation code.");
         }
 
         if (invitation.IsRedeemed)
         {
             RecordAttempt(clientIp);
-            return new EnrollmentRedemptionResult(false, null, "Enrollment invitation has already been redeemed.");
+            return new EnrollmentRedemptionResult(false, null, null, "Enrollment invitation has already been redeemed.");
         }
 
         if (invitation.ExpiresAtUtc < DateTime.UtcNow)
         {
             RecordAttempt(clientIp);
-            return new EnrollmentRedemptionResult(false, null, "Enrollment invitation has expired.");
+            return new EnrollmentRedemptionResult(false, null, null, "Enrollment invitation has expired.");
         }
 
-        // 4. Generate Unique Device ID & Cryptographic Registration
+        // 4. Generate Unique Device ID & Cryptographic Registration with Permanent Access Token
         string deviceId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+        string permToken = $"PERM-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}";
         bool redeemed = _store.TryRedeemInvitation(tokenHash, deviceId);
         if (!redeemed)
         {
-            return new EnrollmentRedemptionResult(false, null, "Concurrent redemption conflict. Try again.");
+            return new EnrollmentRedemptionResult(false, null, null, "Concurrent redemption conflict. Try again.");
         }
 
         var device = new EnrolledDevice
@@ -125,7 +127,8 @@ public sealed class EnrollmentService
             PublicKeyPem = publicKeyPem,
             EnrolledAtUtc = DateTime.UtcNow,
             LastHeartbeatUtc = DateTime.UtcNow,
-            Status = DeviceStatus.Online
+            Status = DeviceStatus.Online,
+            PermanentAccessToken = permToken
         };
 
         _store.SaveDevice(device);
@@ -137,11 +140,11 @@ public sealed class EnrollmentService
             TimestampUtc = DateTime.UtcNow,
             EventType = "DeviceEnrolled",
             DeviceId = deviceId,
-            Details = $"Device {hostname} successfully enrolled into group {invitation.GroupId}",
+            Details = $"Device {hostname} successfully enrolled with permanent unattended access key into group {invitation.GroupId}",
             ClientIp = clientIp
         });
 
-        return new EnrollmentRedemptionResult(true, deviceId, null);
+        return new EnrollmentRedemptionResult(true, deviceId, permToken, null);
     }
 
     private bool IsRateLimited(string clientIp)

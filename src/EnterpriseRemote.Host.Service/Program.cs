@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -10,6 +11,7 @@ using EnterpriseRemote.Common.Models;
 using EnterpriseRemote.Common.Protocol;
 using EnterpriseRemote.Host.Service.Install;
 using EnterpriseRemote.Host.Service.Ipc;
+using EnterpriseRemote.Host.Service.Policy;
 
 namespace EnterpriseRemote.Host.Service;
 
@@ -21,14 +23,26 @@ public static class Program
     private static readonly string IdentityFile = Path.Combine(ConfigDir, "device_identity.json");
     private static readonly string LocalFallbackIdentityFile = "device_identity.json";
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeConsole();
+
     public static async Task<int> Main(string[] args)
     {
-        Console.WriteLine("===============================================================================");
-        Console.WriteLine("   Enterprise Windows Remote Access: Host Background Service (Session 0)");
-        Console.WriteLine("===============================================================================\n");
-
         string serverUrl = "http://127.0.0.1:5293";
         string command = args.Length > 0 ? args[0].ToLowerInvariant() : "--run";
+
+        bool keepConsole = args.Any(a => a.Equals("--console", StringComparison.OrdinalIgnoreCase) || a.Equals("--debug", StringComparison.OrdinalIgnoreCase) || a.Equals("--enroll", StringComparison.OrdinalIgnoreCase) || a.Equals("--install", StringComparison.OrdinalIgnoreCase) || a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase));
+        if (!keepConsole && command == "--run")
+        {
+            try { FreeConsole(); } catch { }
+        }
+
+        if (keepConsole)
+        {
+            Console.WriteLine("===============================================================================");
+            Console.WriteLine("   Enterprise Windows Remote Access: Host Background Service (Session 0)");
+            Console.WriteLine("===============================================================================\n");
+        }
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -112,6 +126,7 @@ public static class Program
                 ControlPlaneUrl = serverUrl,
                 PrivateKeyPem = privKey,
                 PublicKeyPem = pubKey,
+                PermanentAccessToken = result.PermanentAccessToken,
                 EnrolledAtUtc = DateTime.UtcNow
             };
 
@@ -119,6 +134,10 @@ public static class Program
 
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"[+] Enrollment Successful! Device ID: {result.DeviceId}");
+            if (!string.IsNullOrEmpty(result.PermanentAccessToken))
+            {
+                Console.WriteLine($"[+] Permanent Unattended Access Key: {result.PermanentAccessToken}");
+            }
             Console.WriteLine($"[+] Cryptographic identity generated and securely stored.");
             Console.ResetColor();
             return 0;
@@ -153,6 +172,12 @@ public static class Program
         serviceHost.Start();
         Console.WriteLine($"[+] Session 0 Host Service active. Named Pipe listening on session {serviceHost.ActiveSessionId}...");
 
+        bool policiesConfigured = BrowserPolicyConfigurator.ApplyBrowserPolicies();
+        if (policiesConfigured)
+        {
+            Console.WriteLine("[+] Enterprise Browser Streaming Policies verified (Chrome & Edge unblocked).");
+        }
+
         using var http = new HttpClient { BaseAddress = new Uri(identity.ControlPlaneUrl), Timeout = TimeSpan.FromSeconds(5) };
         var cts = new CancellationTokenSource();
 
@@ -170,7 +195,8 @@ public static class Program
             try
             {
                 heartbeatCount++;
-                var resp = await http.PostAsync($"/api/v1/devices/{identity.DeviceId}/heartbeat", null, cts.Token);
+                var hbPayload = new { PermanentAccessToken = identity.PermanentAccessToken, Hostname = identity.Hostname };
+                var resp = await http.PostAsJsonAsync($"/api/v1/devices/{identity.DeviceId}/heartbeat", hbPayload, cts.Token);
                 if (resp.IsSuccessStatusCode && heartbeatCount <= 3)
                 {
                     Console.WriteLine($"[+] Heartbeat #{heartbeatCount} acknowledged by Control Plane.");
@@ -182,6 +208,12 @@ public static class Program
                 {
                     Console.WriteLine($"[!] Heartbeat notice: {ex.Message}");
                 }
+            }
+
+            // Interactive watchdog: if running in user desktop session, ensure UserAgent stays alive
+            if (heartbeatCount % 2 == 0)
+            {
+                EnsureUserAgentRunning();
             }
 
             try
@@ -197,48 +229,100 @@ public static class Program
         return 0;
     }
 
+    private static void EnsureUserAgentRunning()
+    {
+        try
+        {
+            if (Process.GetCurrentProcess().SessionId != 0)
+            {
+                var running = Process.GetProcessesByName("EnterpriseRemote.Host.UserAgent");
+                if (running.Length == 0)
+                {
+                    string agentExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EnterpriseRemote.Host.UserAgent.exe");
+                    if (File.Exists(agentExe))
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = agentExe,
+                            UseShellExecute = true,
+                            CreateNoWindow = true,
+                            WindowStyle = ProcessWindowStyle.Hidden
+                        };
+                        Process.Start(psi);
+                        Console.WriteLine("[+] Watchdog: Respawned EnterpriseRemote.Host.UserAgent in active user session.");
+                    }
+                }
+            }
+        }
+        catch { }
+    }
+
+
     private static void SaveIdentity(StoredDeviceIdentity identity)
     {
         string json = JsonSerializer.Serialize(identity, new JsonSerializerOptions { WriteIndented = true });
+        
+        // 1. Try ProgramData (system-wide)
         try
         {
             Directory.CreateDirectory(ConfigDir);
             File.WriteAllText(IdentityFile, json);
         }
-        catch
-        {
-            // Ignore if CommonApplicationData write fails
-        }
+        catch { }
 
+        // 2. Base directory of the executable
+        try
+        {
+            string baseDirFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "device_identity.json");
+            File.WriteAllText(baseDirFile, json);
+        }
+        catch { }
+
+        // 3. Parent directory (if running from Bin/)
+        try
+        {
+            string parentDirFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "device_identity.json");
+            File.WriteAllText(parentDirFile, json);
+        }
+        catch { }
+
+        // 4. Current working directory
         try
         {
             File.WriteAllText(LocalFallbackIdentityFile, json);
         }
-        catch
-        {
-            // Ignore if current directory write fails
-        }
+        catch { }
     }
 
     public static StoredDeviceIdentity? LoadIdentity()
     {
-        string target = File.Exists(IdentityFile) ? IdentityFile :
-                        File.Exists(LocalFallbackIdentityFile) ? LocalFallbackIdentityFile : string.Empty;
-
-        if (string.IsNullOrEmpty(target)) return null;
-
-        try
+        string[] candidates = new[]
         {
-            string json = File.ReadAllText(target);
-            return JsonSerializer.Deserialize<StoredDeviceIdentity>(json);
-        }
-        catch
+            IdentityFile,
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "device_identity.json"),
+            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "device_identity.json"),
+            LocalFallbackIdentityFile
+        };
+
+        foreach (var path in candidates)
         {
-            return null;
+            if (File.Exists(path))
+            {
+                try
+                {
+                    string json = File.ReadAllText(path);
+                    var ident = JsonSerializer.Deserialize<StoredDeviceIdentity>(json);
+                    if (ident != null && !string.IsNullOrEmpty(ident.DeviceId))
+                        return ident;
+                }
+                catch { }
+            }
         }
+
+        return null;
     }
 
-    private record EnrollmentResponse(string DeviceId, string Status);
+    private record EnrollmentResponse(string DeviceId, string? PermanentAccessToken, string Status);
 }
 
 public class StoredDeviceIdentity
@@ -248,5 +332,6 @@ public class StoredDeviceIdentity
     public string ControlPlaneUrl { get; set; } = string.Empty;
     public string PrivateKeyPem { get; set; } = string.Empty;
     public string PublicKeyPem { get; set; } = string.Empty;
+    public string? PermanentAccessToken { get; set; }
     public DateTime EnrolledAtUtc { get; set; }
 }

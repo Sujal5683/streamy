@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EnterpriseRemote.Common.Models;
 using EnterpriseRemote.Common.Protocol;
+using EnterpriseRemote.Host.Service.Input;
 using EnterpriseRemote.Host.Service.Ipc;
 
 namespace EnterpriseRemote.Host.Service;
@@ -45,6 +46,17 @@ public sealed class ServiceHost : IDisposable
                 break;
             case IpcMessageType.TerminateSession:
                 // User clicked Emergency Stop in local tray
+                break;
+            case IpcMessageType.InjectInputElevated:
+                SystemInputInjector.InjectInputPacket(frame.Payload);
+                break;
+            case IpcMessageType.NeutralizeAffinity:
+                if (frame.Payload != null && frame.Payload.Length >= 12)
+                {
+                    long rawHwnd = BitConverter.ToInt64(frame.Payload, 0);
+                    uint targetPid = BitConverter.ToUInt32(frame.Payload, 8);
+                    Policy.WindowAffinityNeutralizer.Neutralize((IntPtr)rawHwnd, targetPid);
+                }
                 break;
         }
     }

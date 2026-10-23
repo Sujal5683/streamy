@@ -85,6 +85,24 @@ public sealed class RemoteSessionClient : IDisposable
         OnInputPacketReady?.Invoke(raw);
     }
 
+    public void SendMouseWheel(short delta, float normalizedX, float normalizedY, byte displayIndex = 0)
+    {
+        if (!_isActive || _isPaused) return;
+        if (!GrantedCapabilities.HasFlag(SessionCapabilities.Input)) return;
+
+        var packet = new MouseInputPacket(
+            Type: InputEventType.MouseWheel,
+            Button: MouseButton.None,
+            DisplayIndex: displayIndex,
+            NormalizedX: Math.Clamp(normalizedX, 0.0f, 1.0f),
+            NormalizedY: Math.Clamp(normalizedY, 0.0f, 1.0f),
+            WheelDelta: delta,
+            TimestampMillis: (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        byte[] raw = DataChannelProtocol.SerializeMouse(packet);
+        OnInputPacketReady?.Invoke(raw);
+    }
+
     public void SendKeyboardKey(ushort virtualKey, bool isDown, ModifierKeys modifiers = ModifierKeys.None, uint unicodeChar = 0)
     {
         if (!_isActive || _isPaused) return;

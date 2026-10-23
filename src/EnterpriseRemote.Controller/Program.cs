@@ -19,7 +19,55 @@ public static class Program
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public static async Task<int> Main(string[] args)
+    [STAThread]
+    public static int Main(string[] args)
+    {
+        bool runGui = args.Length == 0 || Array.Exists(args, a => a.Equals("--gui", StringComparison.OrdinalIgnoreCase));
+        if (runGui)
+        {
+            try
+            {
+                Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += (s, e) =>
+                {
+                    try
+                    {
+                        string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "thread_crash.log");
+                        File.WriteAllText(logPath, e.Exception.ToString());
+                    }
+                    catch { }
+                };
+                AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+                {
+                    try
+                    {
+                        string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "domain_crash.log");
+                        File.WriteAllText(logPath, e.ExceptionObject?.ToString() ?? "Unknown domain exception");
+                    }
+                    catch { }
+                };
+                Application.Run(new UI.RemoteViewerForm());
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    string crashPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crash.log");
+                    File.WriteAllText(crashPath, ex.ToString());
+                }
+                catch { }
+                return 1;
+            }
+        }
+
+        return RunCliAsync(args).GetAwaiter().GetResult();
+    }
+
+    private static async Task<int> RunCliAsync(string[] args)
     {
         Console.WriteLine("===============================================================================");
         Console.WriteLine("   Enterprise Windows Remote Access: Operator Controller Application");

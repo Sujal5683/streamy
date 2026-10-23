@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using EnterpriseRemote.Common.Models;
@@ -12,18 +13,83 @@ namespace EnterpriseRemote.Host.UserAgent;
 
 public static class Program
 {
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeConsole();
+
+    [STAThread]
     public static async Task<int> Main(string[] args)
     {
-        Console.WriteLine("===============================================================================");
-        Console.WriteLine("   Enterprise Windows Remote Access: Interactive Desktop Agent (Session 1+)");
-        Console.WriteLine("===============================================================================\n");
+        try
+        {
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (s, e) =>
+            {
+                try { System.IO.File.WriteAllText(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "useragent_thread_crash.log"), e.Exception.ToString()); } catch { }
+            };
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+            {
+                try { System.IO.File.WriteAllText(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "useragent_domain_crash.log"), e.ExceptionObject?.ToString() ?? "Domain error"); } catch { }
+            };
+            TaskScheduler.UnobservedTaskException += (s, e) =>
+            {
+                e.SetObserved();
+            };
+        }
+        catch { }
 
+        try
+        {
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+        catch { }
+
+        // Detach from console window completely unless explicit debug flag is passed (prevents taskbar icon)
+        bool keepConsole = false;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i].Equals("--console", StringComparison.OrdinalIgnoreCase) || args[i].Equals("--debug", StringComparison.OrdinalIgnoreCase))
+            {
+                keepConsole = true;
+                break;
+            }
+        }
+        if (!keepConsole)
+        {
+            try { FreeConsole(); } catch { }
+        }
+
+        string? serverUrl = null;
+        string? deviceId = null;
         int sessionId = 1;
+
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].Equals("--session", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 int.TryParse(args[i + 1], out sessionId);
+            }
+            else if (args[i].Equals("--server", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                serverUrl = args[i + 1];
+            }
+            else if (args[i].Equals("--device", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                deviceId = args[i + 1];
+            }
+        }
+
+        // Auto-discover identity if not provided via command line
+        if (string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(serverUrl))
+        {
+            var ident = LoadLocalIdentity();
+            if (ident != null)
+            {
+                deviceId ??= ident.DeviceId;
+                serverUrl ??= ident.ControlPlaneUrl;
             }
         }
 
@@ -46,18 +112,36 @@ public static class Program
         var inputEngine = new InputInjectionEngine(capturer.Display);
         Console.WriteLine("[+] Input Injection Engine bounds-checked and active.");
 
-        // 3. Initialize Tray Indicator
-        var tray = new SessionTrayIndicator();
+        // 3. Initialize Window Affinity Manager for anti-capture neutralization
+        var affinityManager = new WindowAffinityManager();
+
+        // 4. Initialize Live WebSocket Desktop Streamer
+        EnterpriseRemote.Host.UserAgent.Streaming.DesktopStreamingService? streamer = null;
+        if (!string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(deviceId))
+        {
+            Console.WriteLine($"[+] Starting real-time Desktop Streamer for Device: {deviceId} -> {serverUrl}");
+            streamer = new EnterpriseRemote.Host.UserAgent.Streaming.DesktopStreamingService(serverUrl, deviceId, capturer, inputEngine, affinityManager);
+            streamer.Start();
+        }
+
+        var cts = new CancellationTokenSource();
+
+        // 4. Initialize Tray Indicator in Windows Notification Area (System Tray)
+        var tray = new SessionTrayIndicator(deviceId);
         tray.OnLocalEmergencyDisconnectRequested += () =>
         {
             Console.WriteLine("[!] Local Emergency Stop triggered! Disconnecting session...");
         };
+        tray.OnExitRequested += () =>
+        {
+            cts.Cancel();
+            try { Application.Exit(); } catch { }
+        };
 
-        // 4. Connect to Session 0 Named Pipe
+        // 5. Connect to Session 0 Named Pipe
         Console.WriteLine($"[*] Connecting to Session 0 Host Service IPC (\\.\\pipe\\EnterpriseRemote_IPC_{sessionId})...");
         using var pipeClient = new NamedPipeIpcClient(sessionId);
 
-        var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
         {
             e.Cancel = true;
@@ -71,7 +155,39 @@ public static class Program
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("[+] Connected to Session 0 Host Service via Authenticated Named Pipe.");
             Console.WriteLine("[+] Ephemeral HMAC-SHA256 handshake established.");
+            Console.WriteLine("[+] Dual-Route UIPI Input Bypass active: elevated windows routed via SYSTEM service.");
             Console.ResetColor();
+
+            inputEngine.SetElevatedFallback(payload =>
+            {
+                if (pipeClient.IsConnected)
+                {
+                    var frame = new IpcFrame
+                    {
+                        MessageType = IpcMessageType.InjectInputElevated,
+                        SequenceNumber = 0,
+                        Payload = payload
+                    };
+                    _ = pipeClient.SendFrameAsync(frame);
+                }
+            });
+
+            affinityManager.RequestElevatedNeutralization = (hWnd, pid) =>
+            {
+                if (pipeClient.IsConnected)
+                {
+                    byte[] payload = new byte[12];
+                    BitConverter.TryWriteBytes(payload.AsSpan(0, 8), hWnd.ToInt64());
+                    BitConverter.TryWriteBytes(payload.AsSpan(8, 4), pid);
+                    var frame = new IpcFrame
+                    {
+                        MessageType = IpcMessageType.NeutralizeAffinity,
+                        SequenceNumber = 0,
+                        Payload = payload
+                    };
+                    _ = pipeClient.SendFrameAsync(frame);
+                }
+            };
 
             pipeClient.OnMessageReceived += frame =>
             {
@@ -100,26 +216,61 @@ public static class Program
             Console.ResetColor();
         }
 
-        // Display sample tray indicator
-        tray.ShowActiveSession("Operator Standalone Monitor");
-        Console.WriteLine("[+] User Agent ready and monitoring interactive session.");
+        Console.WriteLine("[+] User Agent ready and running in hidden system tray.");
 
         // Keep running until canceled or test completes
         if (args.Length > 0 && args[0].Equals("--oneshot", StringComparison.OrdinalIgnoreCase))
         {
+            streamer?.Dispose();
+            tray.Dispose();
             return 0;
         }
 
-        try
+        // Run Windows message loop for the background system tray icon (no taskbar window)
+        Application.ApplicationExit += (_, _) =>
         {
-            await Task.Delay(Timeout.Infinite, cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Clean exit
-        }
+            cts.Cancel();
+        };
 
+        Application.Run();
+
+        streamer?.Dispose();
         tray.CloseActiveSession();
+        tray.Dispose();
         return 0;
+    }
+
+    private static LocalDeviceIdentity? LoadLocalIdentity()
+    {
+        string[] candidates = new[]
+        {
+            System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "device_identity.json"),
+            System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "EnterpriseRemote", "device_identity.json"),
+            System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "device_identity.json")
+        };
+
+        foreach (var path in candidates)
+        {
+            if (System.IO.File.Exists(path))
+            {
+                try
+                {
+                    string json = System.IO.File.ReadAllText(path);
+                    return System.Text.Json.JsonSerializer.Deserialize<LocalDeviceIdentity>(json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                }
+                catch
+                {
+                }
+            }
+        }
+        return null;
+    }
+
+    private sealed class LocalDeviceIdentity
+    {
+        public string DeviceId { get; set; } = string.Empty;
+        public string Hostname { get; set; } = string.Empty;
+        public string ControlPlaneUrl { get; set; } = string.Empty;
+        public string? PermanentAccessToken { get; set; }
     }
 }

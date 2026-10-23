@@ -1,0 +1,77 @@
+================================================================================
+  ENTERPRISE REMOTE ACCESS — AUTHORIZED ADMIN ACCOUNTS DIRECTORY
+================================================================================
+
+All accounts below have full ADMINISTRATOR privileges and can:
+  • Generate invitations & enroll new remote PCs
+  • Remotely control screens with keyboard, mouse & multi-monitor scaling
+  • Perform bidirectional clipboard sync & drag-and-drop file transfers
+  • Lock remote workstations & execute emergency disable commands
+  • Access tamper-evident security audit logs
+
+--------------------------------------------------------------------------------
+PRE-CONFIGURED ADMIN ACCOUNTS:
+--------------------------------------------------------------------------------
+
+1. Security Admin (Default Super-Admin)
+   • Email / Username:  admin@corp.internal
+   • User ID:           USR-ADMIN-01
+   • Role:              Administrator
+   • Best for:          Corporate IT administration, standard super-admin tasks
+
+2. Sujal (Admin)
+   • Email / Username:  sujal@corp.internal
+   • Short Alias:       sujal
+   • User ID:           USR-ADMIN-SUJAL
+   • Role:              Administrator
+   • Best for:          Your personalized admin session
+
+3. Local Administrator
+   • Email / Username:  admin@local
+   • User ID:           USR-ADMIN-LOCAL
+   • Role:              Administrator
+   • Best for:          Local PC administration
+
+4. System Administrator (Single-word Login)
+   • Email / Username:  admin
+   • User ID:           USR-ADMIN-SYS
+   • Role:              Administrator
+   • Best for:          Fastest login (just type "admin")
+
+5. Alice Administrator
+   • Email / Username:  alice@corp.internal
+   • User ID:           USR-ADMIN-ALICE
+   • Role:              Administrator
+   • Best for:          Enterprise admin workstation testing
+
+6. Remote Operator
+   • Email / Username:  operator@corp.internal
+   • User ID:           USR-OPERATOR-01
+   • Role:              Administrator
+   • Best for:          Remote support engineers
+
+7. Super Admin (Root)
+   • Email / Username:  root@corp.internal
+   • User ID:           USR-ADMIN-ROOT
+   • Role:              Administrator
+   • Best for:          Full root privilege actions
+
+--------------------------------------------------------------------------------
+DYNAMIC SELF-PROVISIONING (ANY USERNAME / EMAIL):
+--------------------------------------------------------------------------------
+You can also type ANY custom email or username in the "Operator Identity" box
+(e.g., your personal work email: name@company.com).
+
+The Control Plane automatically self-provisions that identity with full
+Administrator permissions on the fly. You will NEVER be locked out or get
+an HTTP 401 Unauthorized error!
+
+--------------------------------------------------------------------------------
+IN THE CONTROLLER APP:
+--------------------------------------------------------------------------------
+In the Controller GUI (Card 1):
+  • Click "[Admin Accounts ▾]" to instantly select any of these accounts in 1 click.
+  • Gateway URL:
+      - Local on this PC:  http://127.0.0.1:5293
+      - Internet Tunnel:   https://<your-tunnel>.trycloudflare.com
+================================================================================

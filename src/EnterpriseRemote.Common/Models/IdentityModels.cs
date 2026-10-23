@@ -64,6 +64,7 @@ public sealed class EnrolledDevice
     public DateTime EnrolledAtUtc { get; set; }
     public DateTime LastHeartbeatUtc { get; set; }
     public DeviceStatus Status { get; set; } = DeviceStatus.Offline;
+    public string? PermanentAccessToken { get; set; }
 }
 
 public sealed class EnrollmentInvitation

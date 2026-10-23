@@ -82,6 +82,7 @@ public sealed class CapturedFrame : IDisposable
     public double CaptureDurationMilliseconds => (double)CaptureDurationTicks / TimeSpan.TicksPerMillisecond;
     public long TimestampUtcTicks { get; set; }
     public bool HasChangedContent => DirtyRects.Count > 0 || MovedRects.Count > 0;
+    public bool ProtectedContentMaskedOut { get; set; }
 
     public void Dispose()
     {

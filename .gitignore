@@ -5,3 +5,11 @@
 .vs/
 .idea/
 device_identity.json
+public_tunnel_url.txt
+*.log
+
+# Local runtime and generated artifacts
+dist/
+scratch/
+**/bin/
+**/obj/

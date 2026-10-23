@@ -13,7 +13,9 @@ public enum IpcMessageType : ushort
     ConsentResult = 0x0011,
     SessionStateUpdate = 0x0030,
     TerminateSession = 0x0040,
-    Heartbeat = 0x0050
+    Heartbeat = 0x0050,
+    InjectInputElevated = 0x0060,
+    NeutralizeAffinity = 0x0070
 }
 
 public sealed class IpcFrame

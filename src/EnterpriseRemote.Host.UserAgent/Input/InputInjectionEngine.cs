@@ -8,23 +8,67 @@ namespace EnterpriseRemote.Host.UserAgent.Input;
 public interface IInputSink
 {
     void InjectMouse(int x, int y, MouseButton button, InputEventType type, short wheelDelta);
+    void InjectMouse(int x, int y, MouseButton button, InputEventType type, short wheelDelta, float normalizedX, float normalizedY) =>
+        InjectMouse(x, y, button, type, wheelDelta);
     void InjectKeyboard(ushort virtualKey, ushort scanCode, bool isDown, uint unicodeChar);
 }
 
 public sealed class WindowsSendInputSink : IInputSink
 {
+    private int _lastInjectedPhysX = -1;
+    private int _lastInjectedPhysY = -1;
+
+    public Action<byte[]>? ElevatedFallback { get; set; }
+
     public void InjectMouse(int x, int y, MouseButton button, InputEventType type, short wheelDelta)
     {
-        uint flags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+        InjectMouse(x, y, button, type, wheelDelta, -1f, -1f);
+    }
 
-        // Map to normalized absolute 0..65535 coordinate system for SendInput
-        int screenW = GetSystemMetrics(0);
-        int screenH = GetSystemMetrics(1);
-        if (screenW <= 0) screenW = 1920;
-        if (screenH <= 0) screenH = 1080;
+    public void InjectMouse(int x, int y, MouseButton button, InputEventType type, short wheelDelta, float normalizedX, float normalizedY)
+    {
+        // 1. Query virtual desktop bounds to support single-monitor and multi-monitor setups with 100% precision
+        int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        int vHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-        int normX = (int)((x * 65535.0) / screenW);
-        int normY = (int)((y * 65535.0) / screenH);
+        if (vWidth <= 0 || vHeight <= 0)
+        {
+            vLeft = 0;
+            vTop = 0;
+            vWidth = GetSystemMetrics(SM_CXSCREEN);
+            vHeight = GetSystemMetrics(SM_CYSCREEN);
+        }
+        if (vWidth <= 0) vWidth = 1920;
+        if (vHeight <= 0) vHeight = 1080;
+
+        int physX = x;
+        int physY = y;
+
+        // Map pixel coordinates to virtual desktop normalized coordinates (0..65535) for SendInput
+        int normX = (int)Math.Clamp(Math.Round(((double)(physX - vLeft) * 65536.0) / Math.Max(1, vWidth)), 0, 65535);
+        int normY = (int)Math.Clamp(Math.Round(((double)(physY - vTop) * 65536.0) / Math.Max(1, vHeight)), 0, 65535);
+
+        // 2. Synchronize cursor position without interfering with local physical mouse
+        if (type == InputEventType.MouseMove)
+        {
+            if (physX == _lastInjectedPhysX && physY == _lastInjectedPhysY)
+            {
+                return;
+            }
+
+            _lastInjectedPhysX = physX;
+            _lastInjectedPhysY = physY;
+            SetCursorPos(physX, physY);
+            return;
+        }
+
+        _lastInjectedPhysX = physX;
+        _lastInjectedPhysY = physY;
+        SetCursorPos(physX, physY);
+
+        uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
 
         switch (type)
         {
@@ -60,15 +104,40 @@ public sealed class WindowsSendInputSink : IInputSink
             }
         };
 
-        SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        bool isCustomDesktop = Capture.DesktopSwitchManager.AttachCallingThreadToInputDesktop(out string desktopName) &&
+                               !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
+
+        uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        if ((sent == 0 || isCustomDesktop) && ElevatedFallback != null)
+        {
+            var mousePacket = new MouseInputPacket(
+                type,
+                button,
+                0,
+                normalizedX >= 0f ? normalizedX : (float)normX / 65535f,
+                normalizedY >= 0f ? normalizedY : (float)normY / 65535f,
+                wheelDelta,
+                (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            byte[] payload = DataChannelProtocol.SerializeMouse(in mousePacket);
+            ElevatedFallback(payload);
+        }
     }
 
     public void InjectKeyboard(ushort virtualKey, ushort scanCode, bool isDown, uint unicodeChar)
     {
+        bool isCustomDesktop = Capture.DesktopSwitchManager.AttachCallingThreadToInputDesktop(out string desktopName) &&
+                               !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
+
         uint flags = 0;
         if (!isDown) flags |= KEYEVENTF_KEYUP;
 
-        if (unicodeChar > 0)
+        // Extended keys (arrows, home, end, ins, del, pgup, pgdn, numlock, divide)
+        if ((virtualKey >= 33 && virtualKey <= 46) || virtualKey == 144 || virtualKey == 111)
+        {
+            flags |= KEYEVENTF_EXTENDEDKEY;
+        }
+
+        if (unicodeChar > 0 && virtualKey == 0)
         {
             flags |= KEYEVENTF_UNICODE;
             var input = new INPUT
@@ -86,10 +155,23 @@ public sealed class WindowsSendInputSink : IInputSink
                     }
                 }
             };
-            SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+            uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+            if ((sent == 0 || isCustomDesktop) && ElevatedFallback != null)
+            {
+                var keyPacket = new KeyboardInputPacket(
+                    isDown ? InputEventType.KeyDown : InputEventType.KeyUp,
+                    virtualKey,
+                    (ushort)unicodeChar,
+                    ModifierKeys.None,
+                    unicodeChar,
+                    (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                byte[] payload = DataChannelProtocol.SerializeKeyboard(in keyPacket);
+                ElevatedFallback(payload);
+            }
         }
         else
         {
+            ushort actualScan = scanCode > 0 ? scanCode : (ushort)MapVirtualKey(virtualKey, 0);
             var input = new INPUT
             {
                 type = INPUT_KEYBOARD,
@@ -98,14 +180,26 @@ public sealed class WindowsSendInputSink : IInputSink
                     ki = new KEYBDINPUT
                     {
                         wVk = virtualKey,
-                        wScan = scanCode,
+                        wScan = actualScan,
                         dwFlags = flags,
                         time = 0,
                         dwExtraInfo = IntPtr.Zero
                     }
                 }
             };
-            SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+            uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+            if ((sent == 0 || isCustomDesktop) && ElevatedFallback != null)
+            {
+                var keyPacket = new KeyboardInputPacket(
+                    isDown ? InputEventType.KeyDown : InputEventType.KeyUp,
+                    virtualKey,
+                    actualScan,
+                    ModifierKeys.None,
+                    unicodeChar,
+                    (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                byte[] payload = DataChannelProtocol.SerializeKeyboard(in keyPacket);
+                ElevatedFallback(payload);
+            }
         }
     }
 
@@ -120,9 +214,24 @@ public sealed class WindowsSendInputSink : IInputSink
     private const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
     private const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
     private const uint MOUSEEVENTF_WHEEL = 0x0800;
+    private const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
     private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_UNICODE = 0x0004;
+
+    private const int SM_CXSCREEN = 0;
+    private const int SM_CYSCREEN = 1;
+    private const int SM_XVIRTUALSCREEN = 76;
+    private const int SM_YVIRTUALSCREEN = 77;
+    private const int SM_CXVIRTUALSCREEN = 78;
+    private const int SM_CYVIRTUALSCREEN = 79;
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetCursorPos(int X, int Y);
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
@@ -193,6 +302,14 @@ public sealed class InputInjectionEngine
         _activeDisplay = display;
     }
 
+    public void SetElevatedFallback(Action<byte[]> fallback)
+    {
+        if (_sink is WindowsSendInputSink w)
+        {
+            w.ElevatedFallback = fallback;
+        }
+    }
+
     public bool ProcessMousePacket(in MouseInputPacket packet)
     {
         if (!CheckRateLimit()) return false;
@@ -204,12 +321,14 @@ public sealed class InputInjectionEngine
             return false; // Out-of-bounds input packet dropped
         }
 
-        // 2. Convert to Target Display Coordinates
-        int pixelX = _activeDisplay.Left + (int)Math.Round(packet.NormalizedX * (_activeDisplay.Width - 1));
-        int pixelY = _activeDisplay.Top + (int)Math.Round(packet.NormalizedY * (_activeDisplay.Height - 1));
+        // 2. Convert to Target Display Coordinates with bounds safety
+        int dispW = Math.Max(1, _activeDisplay.Width);
+        int dispH = Math.Max(1, _activeDisplay.Height);
+        int pixelX = _activeDisplay.Left + (int)Math.Round(packet.NormalizedX * (dispW - 1));
+        int pixelY = _activeDisplay.Top + (int)Math.Round(packet.NormalizedY * (dispH - 1));
 
-        // 3. Inject
-        _sink.InjectMouse(pixelX, pixelY, packet.Button, packet.Type, packet.WheelDelta);
+        // 3. Inject with normalized coordinates for 100% DPI and resolution precision
+        _sink.InjectMouse(pixelX, pixelY, packet.Button, packet.Type, packet.WheelDelta, packet.NormalizedX, packet.NormalizedY);
         return true;
     }
 

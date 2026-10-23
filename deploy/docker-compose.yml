@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  controlplane:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: enterprise-remote-controlplane
+    restart: unless-stopped
+    ports:
+      - "5293:5293"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://0.0.0.0:5293
+    volumes:
+      - controlplane_data:/app/data
+
+volumes:
+  controlplane_data:
