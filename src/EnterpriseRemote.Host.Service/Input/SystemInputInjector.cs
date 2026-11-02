@@ -13,6 +13,7 @@ namespace EnterpriseRemote.Host.Service.Input;
 /// </summary>
 public static class SystemInputInjector
 {
+    private static long _lastMouseDownTicks = 0;
     private const uint DESKTOP_ALL_ACCESS = 0x01FF;
     private const uint INPUT_MOUSE = 0;
     private const uint INPUT_KEYBOARD = 1;
@@ -194,7 +195,24 @@ public static class SystemInputInjector
             mouse_event(mouseEventFlag, (uint)normX, (uint)normY, (uint)packet.WheelDelta, UIntPtr.Zero);
         }
 
-        // Dispatch 3: Direct PostMessage to target HWND to bypass low-level hooks
+        // Physical Actuation Hold Window: Record Down and enforce 35ms hold window before Up
+        if (packet.Type == InputEventType.MouseButtonDown)
+        {
+            _lastMouseDownTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+        else if (packet.Type == InputEventType.MouseButtonUp)
+        {
+            if (_lastMouseDownTicks > 0)
+            {
+                long elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _lastMouseDownTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency;
+                if (elapsedMs < 35)
+                {
+                    Thread.Sleep((int)(35 - elapsedMs));
+                }
+            }
+        }
+
+        // Dispatch 3: Direct PostMessage / SendNotifyMessage to target HWND and Root Window (bypasses WH_MOUSE_LL)
         if (packet.Type == InputEventType.MouseButtonDown || packet.Type == InputEventType.MouseButtonUp)
         {
             try
@@ -203,6 +221,19 @@ public static class SystemInputInjector
                 IntPtr targetHwnd = WindowFromPoint(pt);
                 if (targetHwnd != IntPtr.Zero)
                 {
+                    IntPtr rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+                    if (rootHwnd == IntPtr.Zero) rootHwnd = targetHwnd;
+
+                    if (packet.Type == InputEventType.MouseButtonDown)
+                    {
+                        try
+                        {
+                            SetForegroundWindow(rootHwnd);
+                            BringWindowToTop(rootHwnd);
+                        }
+                        catch { }
+                    }
+
                     ScreenToClient(targetHwnd, ref pt);
                     IntPtr lParam = (IntPtr)((pt.y << 16) | (pt.x & 0xFFFF));
                     uint msg = 0;
@@ -224,6 +255,15 @@ public static class SystemInputInjector
                     if (msg != 0)
                     {
                         PostMessage(targetHwnd, msg, wParam, lParam);
+                        SendNotifyMessage(targetHwnd, msg, wParam, lParam);
+
+                        if (rootHwnd != targetHwnd && rootHwnd != IntPtr.Zero)
+                        {
+                            POINT rootPt = new POINT { x = physX, y = physY };
+                            ScreenToClient(rootHwnd, ref rootPt);
+                            IntPtr rootLParam = (IntPtr)((rootPt.y << 16) | (rootPt.x & 0xFFFF));
+                            PostMessage(rootHwnd, msg, wParam, rootLParam);
+                        }
                     }
                 }
             }
@@ -292,6 +332,24 @@ public static class SystemInputInjector
     }
 
     #region Win32 P/Invoke
+    private const uint GA_ROOT = 2;
+    private const uint WM_CHAR = 0x0102;
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SendNotifyMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
     private const uint WM_LBUTTONDOWN = 0x0201;
     private const uint WM_LBUTTONUP = 0x0202;
     private const uint WM_RBUTTONDOWN = 0x0204;

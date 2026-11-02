@@ -60,7 +60,7 @@ public sealed class NamedPipeIpcServer : IDisposable
                 _pipeServer = NamedPipeServerStreamAcl.Create(
                     _pipeName,
                     PipeDirection.InOut,
-                    1,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Message,
                     PipeOptions.Asynchronous,
                     inBufferSize: 65536,

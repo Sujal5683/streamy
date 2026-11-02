@@ -506,15 +506,47 @@
                             </div>
                             <div id="sidebar-gateway-mode-badge" class="sidebar-mode-badge">Mode: 💻 Localhost (Loopback)</div>
 
-                            <label class="sidebar-label" for="sidebar-select-user" style="margin-top: 6px;">Operator Identity:</label>
-                            <select id="sidebar-select-user" class="cyber-select" title="Switch Operator Account" aria-label="Switch Operator Account">
-                                <option value="admin@corp.internal">admin@corp.internal (Admin)</option>
-                                <option value="admin">admin (System Admin)</option>
-                                <option value="sujal@corp.internal">sujal@corp.internal (Admin)</option>
-                                <option value="sujal">sujal (Admin)</option>
-                                <option value="alice@corp.internal">alice@corp.internal (Admin)</option>
-                                <option value="operator@corp.internal">operator@corp.internal (Operator)</option>
-                            </select>
+                            <label class="sidebar-label" for="btn-sidebar-trigger-user" style="margin-top: 6px;">Operator Identity:</label>
+                            <div class="custom-select-wrapper" style="position: relative; width: 100%;">
+                                <button type="button" class="cyber-select-trigger" id="btn-sidebar-trigger-user" title="Switch Operator Identity">
+                                    <span id="label-sidebar-trigger-user" class="trigger-label">👑 admin@corp.internal</span>
+                                    <span class="trigger-chevron">▾</span>
+                                </button>
+                                <div class="cyber-select-menu" id="menu-sidebar-custom-user">
+                                    <button type="button" class="dropdown-item active" data-email="admin@corp.internal">
+                                        <span>👑 admin@corp.internal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="admin">
+                                        <span>👑 admin</span>
+                                        <span class="dropdown-shortcut">System Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="sujal@corp.internal">
+                                        <span>👑 sujal@corp.internal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="sujal">
+                                        <span>👑 sujal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="alice@corp.internal">
+                                        <span>👑 alice@corp.internal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="operator@corp.internal">
+                                        <span>👤 operator@corp.internal</span>
+                                        <span class="dropdown-shortcut">Operator</span>
+                                    </button>
+                                </div>
+                                <select id="sidebar-select-user" class="cyber-select hidden-select" tabindex="-1">
+                                    <option value="admin@corp.internal">admin@corp.internal (Admin)</option>
+                                    <option value="admin">admin (System Admin)</option>
+                                    <option value="sujal@corp.internal">sujal@corp.internal (Admin)</option>
+                                    <option value="sujal">sujal (Admin)</option>
+                                    <option value="alice@corp.internal">alice@corp.internal (Admin)</option>
+                                    <option value="operator@corp.internal">operator@corp.internal (Operator)</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
 
@@ -530,10 +562,19 @@
                             <button id="btn-sidebar-refresh-devices" class="card-icon-btn" title="Refresh Enrolled Devices">↻</button>
                         </div>
                         <div class="card-body">
-                            <label class="sidebar-label" for="sidebar-select-device">Select Remote Workstation:</label>
-                            <select id="sidebar-select-device" class="cyber-select" title="Select Remote Target" aria-label="Select Remote Workstation">
-                                <option value="">Discovering devices...</option>
-                            </select>
+                            <label class="sidebar-label" for="btn-sidebar-trigger-device">Select Remote Workstation:</label>
+                            <div class="custom-select-wrapper" style="position: relative; width: 100%;">
+                                <button type="button" class="cyber-select-trigger" id="btn-sidebar-trigger-device" title="Select Remote Target">
+                                    <span id="label-sidebar-trigger-device" class="trigger-label">Target: Discovering...</span>
+                                    <span class="trigger-chevron">▾</span>
+                                </button>
+                                <div class="cyber-select-menu" id="menu-sidebar-custom-device">
+                                    <div class="dropdown-item-empty">Discovering enrolled devices...</div>
+                                </div>
+                                <select id="sidebar-select-device" class="cyber-select hidden-select" tabindex="-1">
+                                    <option value="">Discovering devices...</option>
+                                </select>
+                            </div>
 
                             <label class="sidebar-label" for="sidebar-txt-key" style="margin-top: 6px;">Quick PIN or Permanent Key:</label>
                             <form class="sidebar-key-row" autocomplete="off" onsubmit="return false;">
@@ -646,12 +687,76 @@
                     <button id="btn-float-input" class="island-btn active" title="Toggle Remote Input Control">
                         Control: ON
                     </button>
-                    <button id="btn-float-screens" class="island-btn" title="Switch Display / Desktop">
-                        Screen ▾
-                    </button>
-                    <button id="btn-float-quick" class="island-btn" title="Quick Key Injections">
-                        Keys ▾
-                    </button>
+                    <div class="dropdown-wrapper">
+                        <button id="btn-float-screens" class="island-btn" title="Switch Display / Desktop">
+                            Screen ▾
+                        </button>
+                        <div id="menu-float-screens" class="dropdown-menu island-dropdown-menu">
+                            <div class="dropdown-section-title">DISPLAYS</div>
+                            <button class="dropdown-item active" data-display="auto">
+                                <span>Auto (Primary Screen)</span>
+                                <span class="dropdown-shortcut">Default</span>
+                            </button>
+                            <button class="dropdown-item" data-display="0">
+                                <span>Display 1 (Primary)</span>
+                                <span class="dropdown-shortcut">1080p</span>
+                            </button>
+                            <button class="dropdown-item" data-display="1">
+                                <span>Display 2</span>
+                                <span class="dropdown-shortcut">Extended</span>
+                            </button>
+                            <div class="dropdown-divider"></div>
+                            <div class="dropdown-section-title">DESKTOP SESSIONS</div>
+                            <button class="dropdown-item" data-desktop="Default">
+                                <span>Default User Desktop</span>
+                                <span class="dropdown-shortcut">Active</span>
+                            </button>
+                            <button class="dropdown-item" data-desktop="Winlogon">
+                                <span>Winlogon / UAC Secure Screen</span>
+                                <span class="dropdown-shortcut">Lock</span>
+                            </button>
+                            <button class="dropdown-item" data-desktop="SafeExamBrowser">
+                                <span>Safe Exam Browser (SEB)</span>
+                                <span class="dropdown-shortcut">Isolated</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="dropdown-wrapper">
+                        <button id="btn-float-quick" class="island-btn" title="Quick Key Injections">
+                            Keys ▾
+                        </button>
+                        <div id="menu-float-quick" class="dropdown-menu island-dropdown-menu">
+                            <button class="dropdown-item" data-action="ctrl-alt-del">
+                                <span>Ctrl + Alt + Del</span>
+                                <span class="dropdown-shortcut">Security</span>
+                            </button>
+                            <button class="dropdown-item" data-action="win-l">
+                                <span>Lock Workstation</span>
+                                <span class="dropdown-shortcut">Win + L</span>
+                            </button>
+                            <button class="dropdown-item" data-action="win-r">
+                                <span>Run Dialog</span>
+                                <span class="dropdown-shortcut">Win + R</span>
+                            </button>
+                            <button class="dropdown-item" data-action="taskmgr">
+                                <span>Task Manager</span>
+                                <span class="dropdown-shortcut">Ctrl+Shift+Esc</span>
+                            </button>
+                            <button class="dropdown-item" data-action="alt-tab">
+                                <span>Switch App</span>
+                                <span class="dropdown-shortcut">Alt + Tab</span>
+                            </button>
+                            <button class="dropdown-item" data-action="win">
+                                <span>Start Menu</span>
+                                <span class="dropdown-shortcut">Win Key</span>
+                            </button>
+                            <button class="dropdown-item" data-action="esc">
+                                <span>Escape</span>
+                                <span class="dropdown-shortcut">Esc</span>
+                            </button>
+                        </div>
+                    </div>
                     <button id="btn-float-scale" class="island-btn" title="Cycle Viewport Scale Mode">
                         Fit
                     </button>
@@ -679,7 +784,6 @@
                     </div>
                 </div>
             </main>
-        </div>
 
         <!-- Floating Toast Container -->
         <div id="toast-container"></div>
@@ -751,6 +855,7 @@
                                     <div class="code-row">
                                         <span class="code-label">Universal PIN:</span>
                                         <code id="wizard-quick-pin">1234</code>
+                                        <button id="btn-wizard-copy-pin" class="cyber-btn cyber-btn-outline" title="Copy Universal PIN" type="button" style="padding: 2px 8px; font-size: 11px;">📋 Copy</button>
                                         <span class="code-hint">(4-digit PIN for instant 1-click access)</span>
                                     </div>
                                 </div>

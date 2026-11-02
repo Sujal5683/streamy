@@ -467,6 +467,11 @@ export class RemoteStreamClient {
             } catch { }
             this.ws = null;
         }
+        if (this.canvas && this.ctx) {
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.fillStyle = '#07090e';
+            this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        }
         this.onStatusChange('disconnected', 'Disconnected from remote stream.');
     }
 

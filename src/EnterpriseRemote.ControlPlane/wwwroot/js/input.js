@@ -223,15 +223,19 @@ export class InputHandler {
         const handleKey = (e, isDown) => {
             if (!this.inputEnabled || !this.streamClient.isConnected) return;
 
-            // Allow keys if canvas is active or if user is hovering over remote viewport
-            const isTargetingStream = (document.activeElement === c) || this.isHoveringCanvas;
-            if (!isTargetingStream) return;
+            // Don't forward keys to stream if a settings or connections modal is currently open
+            if (document.getElementById('modal-backdrop')?.classList.contains('show')) return;
 
             // If active element is a form input inside the controller UI, allow standard editing
             const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
             if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) {
                 return;
             }
+
+            // Allow keys if canvas is active, user is hovering over remote viewport, or app is in fullscreen
+            const isFullscreen = !!document.fullscreenElement || document.getElementById('app-container')?.classList.contains('is-fullscreen');
+            const isTargetingStream = (document.activeElement === c) || this.isHoveringCanvas || isFullscreen;
+            if (!isTargetingStream) return;
 
             // Prevent default browser shortcuts (Alt+Left, Backspace, Tab, Space, etc.)
             if (e.code !== 'F12' && e.code !== 'F5') {

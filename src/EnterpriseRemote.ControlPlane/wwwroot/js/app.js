@@ -146,7 +146,9 @@ class WebControllerApp {
             floatDeviceName: document.getElementById('float-device-name'),
             btnFloatInput: document.getElementById('btn-float-input'),
             btnFloatScreens: document.getElementById('btn-float-screens'),
+            menuFloatScreens: document.getElementById('menu-float-screens'),
             btnFloatQuick: document.getElementById('btn-float-quick'),
+            menuFloatQuick: document.getElementById('menu-float-quick'),
             btnFloatScale: document.getElementById('btn-float-scale'),
             btnFloatSettings: document.getElementById('btn-float-settings'),
             btnFloatPin: document.getElementById('btn-float-pin'),
@@ -160,6 +162,7 @@ class WebControllerApp {
             btnRefreshDevicesModal: document.getElementById('btn-modal-refresh-devices'),
             wizardCode: document.getElementById('wizard-invitation-code'),
             wizardPin: document.getElementById('wizard-quick-pin'),
+            btnWizardCopyPin: document.getElementById('btn-wizard-copy-pin'),
             wizardCmd: document.getElementById('wizard-powershell-cmd'),
             btnCopyCode: document.getElementById('btn-wizard-copy-code'),
             btnRefreshCode: document.getElementById('btn-wizard-refresh-code'),
@@ -179,6 +182,14 @@ class WebControllerApp {
             btnSidebarCopyTunnel: document.getElementById('btn-sidebar-copy-tunnel'),
             sidebarDetectedTailscaleStatus: document.getElementById('sidebar-detected-tailscale-status'),
             btnSidebarCopyTailscale: document.getElementById('btn-sidebar-copy-tailscale'),
+
+            // Sidebar Custom Cyber Selects
+            btnSidebarTriggerDevice: document.getElementById('btn-sidebar-trigger-device'),
+            labelSidebarTriggerDevice: document.getElementById('label-sidebar-trigger-device'),
+            menuSidebarCustomDevice: document.getElementById('menu-sidebar-custom-device'),
+            btnSidebarTriggerUser: document.getElementById('btn-sidebar-trigger-user'),
+            labelSidebarTriggerUser: document.getElementById('label-sidebar-trigger-user'),
+            menuSidebarCustomUser: document.getElementById('menu-sidebar-custom-user'),
 
             // Dual-Mode Tunnel Elements (Cloudflare & Tailscale)
             btnTunnelModeCf: document.getElementById('btn-tunnel-mode-cf'),

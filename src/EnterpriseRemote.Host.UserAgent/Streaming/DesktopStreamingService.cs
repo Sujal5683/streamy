@@ -294,6 +294,19 @@ public sealed class DesktopStreamingService : IDisposable
                         cursorMoved = true;
                     }
                 }
+                else
+                {
+                    // Anti-Freeze Fallback: If OS cursor is suppressed (ci.flags == 0) by SEB/lockdown apps,
+                    // fall back to latest injected remote cursor coordinates so frames keep flowing!
+                    int injX = _inputEngine.LastInjectedScreenX;
+                    int injY = _inputEngine.LastInjectedScreenY;
+                    if (injX >= 0 && injY >= 0 && (injX != _lastCursorX || injY != _lastCursorY))
+                    {
+                        _lastCursorX = injX;
+                        _lastCursorY = injY;
+                        cursorMoved = true;
+                    }
+                }
             }
             catch { }
 
@@ -510,10 +523,18 @@ public sealed class DesktopStreamingService : IDisposable
                         {
                             if (DataChannelProtocol.TryDeserializeSwitchDesktop(remaining.Slice(0, totalPacketLen), out var switchPacket))
                             {
+                                byte prevDisp = _targetDisplayIndex;
                                 _targetDisplayIndex = switchPacket.DisplayIndex;
                                 _autoFollowActiveDesktop = switchPacket.AutoFollow;
                                 _targetDesktopMode = string.IsNullOrWhiteSpace(switchPacket.DesktopName) ? "Auto" : switchPacket.DesktopName;
                                 Console.WriteLine($"[+] Switch Desktop received: Target='{_targetDesktopMode}', Display={_targetDisplayIndex}, AutoFollow={_autoFollowActiveDesktop}");
+
+                                if (_capturer is DxgiDesktopDuplicator dxgi && dxgi.TargetDisplayIndex != _targetDisplayIndex)
+                                {
+                                    dxgi.TargetDisplayIndex = _targetDisplayIndex;
+                                    try { dxgi.Initialize(); } catch { }
+                                }
+
                                 _lastDesktopListBroadcast = DateTime.MinValue; // Trigger immediate list update
                             }
                             offset += totalPacketLen;
@@ -656,6 +677,18 @@ public sealed class DesktopStreamingService : IDisposable
                 {
                     curX = (int)((frame.Pointer.X - displayLeft) * scaleX);
                     curY = (int)((frame.Pointer.Y - displayTop) * scaleY);
+                }
+                else
+                {
+                    // Anti-Freeze Fallback: When OS hardware cursor is suppressed by SEB or kiosk app,
+                    // render software cursor at latest injected remote coordinates!
+                    int injX = _inputEngine.LastInjectedScreenX;
+                    int injY = _inputEngine.LastInjectedScreenY;
+                    if (injX >= 0 && injY >= 0)
+                    {
+                        curX = (int)((injX - displayLeft) * scaleX);
+                        curY = (int)((injY - displayTop) * scaleY);
+                    }
                 }
 
                 if (curX >= 0 && curY >= 0 && curX < bmp.Width && curY < bmp.Height)

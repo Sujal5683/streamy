@@ -109,6 +109,12 @@ public sealed class DesktopSwitchManager : IDisposable
         IntPtr hDesktop = OpenActiveInputDesktop();
         if (hDesktop == IntPtr.Zero)
         {
+            int err = Marshal.GetLastWin32Error();
+            if (err == 5) // ERROR_ACCESS_DENIED implies restricted secure desktop (e.g., SEB, UAC)
+            {
+                desktopName = "ProtectedSecureDesktop";
+                return false;
+            }
             return false;
         }
 
@@ -116,6 +122,43 @@ public sealed class DesktopSwitchManager : IDisposable
         {
             desktopName = QueryDesktopName(hDesktop);
             return AttachThreadToDesktop(hDesktop);
+        }
+        finally
+        {
+            CloseDesktop(hDesktop);
+        }
+    }
+
+    /// <summary>
+    /// Determines whether the active input desktop is a custom or protected secure desktop
+    /// (e.g. SEBDesktop, SafeExamBrowser, Winlogon, UAC). Returns true if a non-Default desktop
+    /// is active OR if access was denied by ACLs.
+    /// </summary>
+    public static bool IsCustomOrProtectedDesktopActive(out string desktopName)
+    {
+        desktopName = "Default";
+        IntPtr hDesktop = OpenActiveInputDesktop();
+        if (hDesktop == IntPtr.Zero)
+        {
+            int err = Marshal.GetLastWin32Error();
+            if (err == 5) // ERROR_ACCESS_DENIED
+            {
+                desktopName = "ProtectedSecureDesktop";
+                return true;
+            }
+            return false;
+        }
+
+        try
+        {
+            desktopName = QueryDesktopName(hDesktop);
+            if (string.IsNullOrEmpty(desktopName)) desktopName = "UnknownDesktop";
+            bool isCustom = !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
+            if (isCustom)
+            {
+                AttachThreadToDesktop(hDesktop);
+            }
+            return isCustom;
         }
         finally
         {

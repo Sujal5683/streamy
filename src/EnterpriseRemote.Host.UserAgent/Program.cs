@@ -11,6 +11,19 @@ using EnterpriseRemote.Host.UserAgent.Tray;
 namespace EnterpriseRemote.Host.UserAgent;
 public static class Program
 {
+    private static bool IsAdministrator()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var principal = new System.Security.Principal.WindowsPrincipal(identity);
+            return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
     private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
@@ -19,6 +32,26 @@ public static class Program
     [STAThread]
     public static async Task<int> Main(string[] args)
     {
+        // Auto-elevate if not running as Administrator to ensure UIPI bypass across elevated and lockdown apps
+        if (!IsAdministrator() && !args.Any(a => a.Equals("--no-elevate", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = Environment.ProcessPath ?? "EnterpriseRemote.Host.UserAgent.exe",
+                    Arguments = string.Join(" ", args),
+                    Verb = "runas",
+                    UseShellExecute = true
+                };
+                System.Diagnostics.Process.Start(psi);
+                return 0;
+            }
+            catch
+            {
+                // User declined UAC prompt; continue un-elevated with SYSTEM service fallback
+            }
+        }
         await Task.Yield();
         try
         {
@@ -58,7 +91,8 @@ public static class Program
         }
         string? serverUrl = null;
         string? deviceId = null;
-        int sessionId = 1;
+        int sessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId;
+        if (sessionId <= 0) sessionId = 1;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].Equals("--session", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)

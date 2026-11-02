@@ -26,7 +26,7 @@ public sealed class ServiceHost : IDisposable
 
         // 1. Detect current active console session
         _activeSessionId = (int)WTSGetActiveConsoleSessionId();
-        if (_activeSessionId < 0) _activeSessionId = 1;
+        if (_activeSessionId <= 0) _activeSessionId = 1;
 
         // 2. Start Named Pipe Server for this session
         _ipcServer = new NamedPipeIpcServer(_activeSessionId);

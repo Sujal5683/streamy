@@ -12,6 +12,26 @@
 ' NO windows or taskbar items appear. Look for the shield icon in the tray!
 ' ================================================================================
 
+' ── Ensure Administrator privileges for UIPI bypass across elevated and lockdown apps ──
+Function IsAdmin()
+    On Error Resume Next
+    Dim sh
+    Set sh = CreateObject("WScript.Shell")
+    sh.RegRead("HKEY_USERS\S-1-5-19\Environment\TEMP")
+    If Err.Number = 0 Then
+        IsAdmin = True
+    Else
+        IsAdmin = False
+    End If
+    Err.Clear
+End Function
+
+If Not IsAdmin() Then
+    Dim app
+    Set app = CreateObject("Shell.Application")
+    app.ShellExecute "wscript.exe", """" & WScript.ScriptFullName & """ --elevated", "", "runas", 0
+    WScript.Quit
+End If
 Set WshShell = CreateObject("WScript.Shell")
 Set fso      = CreateObject("Scripting.FileSystemObject")
 

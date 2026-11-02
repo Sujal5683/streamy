@@ -20,6 +20,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
     public DisplayInfo Display { get; private set; } = new();
     public bool IsInitialized { get; private set; }
     public bool IsUsingFallback { get; private set; }
+    public int TargetDisplayIndex { get; set; } = 0;
 
     public DxgiDesktopDuplicator(IScreenCapturer? fallbackCapturer = null)
     {
@@ -81,6 +82,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
         IntPtr pTargetAdapter = IntPtr.Zero;
         IntPtr pTargetOutput = IntPtr.Zero;
         Guid iidFactory1 = new("770aae78-f26f-4dba-a829-253c83d1b387");
+        var attachedDisplays = new List<(IntPtr Adapter, IntPtr Output, string Name)>();
 
         try
         {
@@ -110,16 +112,34 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
                         var getDesc = (delegate* unmanaged[Stdcall]<IntPtr, out DXGI_OUTPUT_DESC, int>)vtblOutput[7];
                         if (getDesc(pCurrentOutput, out DXGI_OUTPUT_DESC outDesc) == S_OK && outDesc.AttachedToDesktop)
                         {
-                            pTargetAdapter = pCurrentAdapter;
-                            pTargetOutput = pCurrentOutput;
-                            break;
+                            Marshal.AddRef(pCurrentAdapter);
+                            attachedDisplays.Add((pCurrentAdapter, pCurrentOutput, outDesc.DeviceName));
                         }
-
-                        Marshal.Release(pCurrentOutput);
+                        else
+                        {
+                            Marshal.Release(pCurrentOutput);
+                        }
                     }
 
-                    if (pTargetAdapter != IntPtr.Zero) break;
                     Marshal.Release(pCurrentAdapter);
+                }
+
+                if (attachedDisplays.Count > 0)
+                {
+                    int chosenIndex = Math.Clamp(TargetDisplayIndex, 0, attachedDisplays.Count - 1);
+                    for (int i = 0; i < attachedDisplays.Count; i++)
+                    {
+                        if (i == chosenIndex)
+                        {
+                            pTargetAdapter = attachedDisplays[i].Adapter;
+                            pTargetOutput = attachedDisplays[i].Output;
+                        }
+                        else
+                        {
+                            Marshal.Release(attachedDisplays[i].Output);
+                            Marshal.Release(attachedDisplays[i].Adapter);
+                        }
+                    }
                 }
             }
         }
@@ -239,15 +259,15 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
 
             Display = new DisplayInfo
             {
-                Index = 0,
-                DeviceName = @"\\.\DISPLAY1 (DXGI Multi-Adapter Duplication)",
+                Index = (byte)Math.Clamp(TargetDisplayIndex, 0, 255),
+                DeviceName = $@"\\.\DISPLAY{TargetDisplayIndex + 1} (DXGI Multi-Adapter Duplication)",
                 Left = desc.DesktopCoordinates.Left,
                 Top = desc.DesktopCoordinates.Top,
                 Width = _width,
                 Height = _height,
                 RefreshRateNumerator = (int)desc.ModeDesc.RefreshRate.Numerator,
                 RefreshRateDenominator = (int)desc.ModeDesc.RefreshRate.Denominator,
-                IsPrimary = true
+                IsPrimary = (TargetDisplayIndex == 0)
             };
 
             // 3. Create Staging Texture via ID3D11Device::CreateTexture2D (Slot 5)

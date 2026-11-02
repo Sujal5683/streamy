@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -163,29 +164,72 @@ public sealed class RemoteViewerForm : Form
         };
     }
 
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
+    private const int DWMWA_CAPTION_COLOR = 35;
+    private const int DWMWA_TEXT_COLOR = 36;
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyImmersiveDarkMode(Handle);
+    }
+
+    private static void ApplyImmersiveDarkMode(IntPtr handle)
+    {
+        try
+        {
+            int trueValue = 1;
+            if (DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref trueValue, sizeof(int)) != 0)
+            {
+                DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref trueValue, sizeof(int));
+            }
+
+            // Dark cyber theme caption color (#0B0F19 in BGR format: 0x00190F0B) and cyan text (#00E5FF in BGR: 0x00FFE500)
+            int darkBg = 0x00190F0B;
+            DwmSetWindowAttribute(handle, DWMWA_CAPTION_COLOR, ref darkBg, sizeof(int));
+            int cyanText = 0x00FFE500;
+            DwmSetWindowAttribute(handle, DWMWA_TEXT_COLOR, ref cyanText, sizeof(int));
+        }
+        catch { }
+    }
+
     public static string NormalizeServerUrl(string input)
         => EnterpriseRemote.Common.Protocol.UrlUtils.NormalizeServerUrl(input);
 
-    public void ToggleFullScreen()
+    public void SetFullScreen(bool fullscreen)
     {
-        if (!_isFullScreen)
+        if (fullscreen == _isFullScreen) return;
+
+        if (fullscreen)
         {
             _prevBorderStyle = FormBorderStyle;
             _prevWindowState = WindowState;
             _prevBounds = Bounds;
 
+            // Completely eliminate the OS title bar, minimize/maximize/close icons, and window borders
             FormBorderStyle = FormBorderStyle.None;
             WindowState = FormWindowState.Normal;
             Bounds = Screen.FromControl(this).Bounds;
+            TopMost = true; // Ensure native window floats above Windows taskbar and system elements
             _isFullScreen = true;
         }
         else
         {
-            FormBorderStyle = _prevBorderStyle;
+            TopMost = false;
+            FormBorderStyle = _prevBorderStyle != FormBorderStyle.None ? _prevBorderStyle : FormBorderStyle.Sizable;
             WindowState = _prevWindowState;
-            Bounds = _prevBounds;
+            Bounds = _prevBounds.Width > 0 ? _prevBounds : new Rectangle(100, 100, 1440, 900);
             _isFullScreen = false;
         }
+    }
+
+    public void ToggleFullScreen()
+    {
+        SetFullScreen(!_isFullScreen);
     }
 
     private async Task InitializeDesktopHostAsync()
@@ -241,6 +285,13 @@ public sealed class RemoteViewerForm : Form
 </body>
 </html>");
 
+            // Seamlessly synchronize native Windows fullscreen with WebView2 HTML5 fullscreen
+            _webView.CoreWebView2.ContainsFullScreenElementChanged += (_, _) =>
+            {
+                bool isHtmlFullscreen = _webView.CoreWebView2?.ContainsFullScreenElement ?? false;
+                BeginInvoke(() => SetFullScreen(isHtmlFullscreen));
+            };
+
             // Handle messages bridged from JS
             _webView.CoreWebView2.WebMessageReceived += (_, args) =>
             {
@@ -255,7 +306,15 @@ public sealed class RemoteViewerForm : Form
                         string msgType = typeEl.GetString() ?? "";
                         if (msgType.Equals("toggle-fullscreen", StringComparison.OrdinalIgnoreCase))
                         {
-                            BeginInvoke(ToggleFullScreen);
+                            if (doc.RootElement.TryGetProperty("fullscreen", out var fsEl))
+                            {
+                                bool targetFs = fsEl.GetBoolean();
+                                BeginInvoke(() => SetFullScreen(targetFs));
+                            }
+                            else
+                            {
+                                BeginInvoke(ToggleFullScreen);
+                            }
                         }
                     }
                 }

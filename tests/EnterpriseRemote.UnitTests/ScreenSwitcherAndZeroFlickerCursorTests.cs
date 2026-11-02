@@ -204,4 +204,32 @@ public class ScreenSwitcherAndZeroFlickerCursorTests
     // WindowsSendInputSink_DedicatedThread_ProcessesInputItemsCleanly
     // WindowsSendInputSink_GetDeepestChildWindowAtPoint_ExecutesSafely
     // InputInjectionEngine_SetTargetDesktopMode_ConfiguresSinkProperly
+    [Fact]
+    public void InputInjectionEngine_InjectedCoordinates_TrackAccurately()
+    {
+        var display = new DisplayInfo { Index = 0, DeviceName = "Primary", Width = 1920, Height = 1080, Left = 0, Top = 0, IsPrimary = true };
+        var mockSink = new MockTestInputSink();
+        using var engine = new EnterpriseRemote.Host.UserAgent.Input.InputInjectionEngine(display, mockSink);
+
+        var packet = new MouseInputPacket(InputEventType.MouseMove, MouseButton.None, 0, 0.5f, 0.25f, 0, 12345UL);
+        bool processed = engine.ProcessMousePacket(packet);
+
+        Assert.True(processed);
+        Assert.Equal((int)Math.Round(0.5f * 1919), engine.LastInjectedScreenX);
+        Assert.Equal((int)Math.Round(0.25f * 1079), engine.LastInjectedScreenY);
+        Assert.True(engine.LastInjectedTimeMs > 0);
+    }
+
+    [Fact]
+    public void DesktopSwitchManager_IsCustomOrProtectedDesktopActive_ExecutesCleanly()
+    {
+        bool isCustom = DesktopSwitchManager.IsCustomOrProtectedDesktopActive(out string desktopName);
+        Assert.False(string.IsNullOrEmpty(desktopName));
+    }
+
+    private sealed class MockTestInputSink : EnterpriseRemote.Host.UserAgent.Input.IInputSink
+    {
+        public void InjectMouse(int x, int y, MouseButton button, InputEventType type, short wheelDelta) { }
+        public void InjectKeyboard(ushort virtualKey, ushort scanCode, bool isDown, uint unicodeChar) { }
+    }
 }

@@ -1,5 +1,14 @@
 @echo off
 title Enterprise Remote Access — 1-Click Enrollment Wizard
+:: Ensure Administrator permissions for service registration and UIPI bypass
+net session >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    if "%~1"=="" (
+        powershell -Command "Start-Process cmd -ArgumentList '/c "%~f0" --elevated' -Verb runAs" 2>nul
+        if %ERRORLEVEL% equ 0 exit /b 0
+    )
+)
+
 setlocal
 cd /d "%~dp0"
 
@@ -89,6 +98,10 @@ if %ENROLL_RESULT% neq 0 (
 
 echo.
 echo  [SUCCESS] This device has been enrolled and paired!
+echo.
+echo  [*] Registering and starting background service (EnterpriseRemoteHostSvc)...
+EnterpriseRemote.Host.Service.exe --install >nul 2>&1
+sc.exe start EnterpriseRemoteHostSvc >nul 2>&1
 echo.
 echo  [*] Starting Enterprise Remote streaming services now...
 echo.

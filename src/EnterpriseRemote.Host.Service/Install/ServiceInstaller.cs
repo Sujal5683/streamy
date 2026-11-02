@@ -31,6 +31,16 @@ public static class ServiceInstaller
         return ExecuteProcess("sc.exe", scArgs);
     }
 
+    public static bool IsServiceInstalled()
+    {
+        return ExecuteProcess("sc.exe", $"query \"{ServiceName}\"");
+    }
+
+    public static bool StartService()
+    {
+        return ExecuteProcess("sc.exe", $"start \"{ServiceName}\"");
+    }
+
     public static bool UninstallService()
     {
         if (!IsElevatedAdministrator())

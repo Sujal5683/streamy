@@ -180,6 +180,16 @@ public static class Program
         Console.WriteLine($"[+] Control Plane URL:  {identity.ControlPlaneUrl}");
         Console.ResetColor();
 
+                try
+        {
+            if (ServiceInstaller.IsElevatedAdministrator() && !ServiceInstaller.IsServiceInstalled())
+            {
+                string binaryPath = Environment.ProcessPath ?? "EnterpriseRemote.Host.Service.exe";
+                ServiceInstaller.InstallService(binaryPath);
+            }
+        }
+        catch { }
+
         using var serviceHost = new ServiceHost();
         serviceHost.Start();
         Console.WriteLine($"[+] Session 0 Host Service active. Named Pipe listening on session {serviceHost.ActiveSessionId}...");

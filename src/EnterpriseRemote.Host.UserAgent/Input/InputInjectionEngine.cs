@@ -19,6 +19,7 @@ public sealed class WindowsSendInputSink : IInputSink
 {
     private int _lastInjectedPhysX = -1;
     private int _lastInjectedPhysY = -1;
+    private static long _lastMouseDownTicks = 0;
 
     public Action<byte[]>? ElevatedFallback { get; set; }
 
@@ -53,7 +54,7 @@ public sealed class WindowsSendInputSink : IInputSink
         int normY = (int)Math.Clamp(Math.Round(((double)(physY - vTop) * 65535.0) / Math.Max(1, vHeight - 1)), 0, 65535);
 
         // Check if calling thread is attached to a custom secure desktop (e.g. SEBDesktop, Winlogon)
-        bool isCustomDesktop = Capture.DesktopSwitchManager.AttachCallingThreadToInputDesktop(out string desktopName) &&
+        bool isCustomDesktop = Capture.DesktopSwitchManager.IsCustomOrProtectedDesktopActive(out string desktopName) &&
                                !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
 
         // Resolve target and foreground windows
@@ -131,6 +132,23 @@ public sealed class WindowsSendInputSink : IInputSink
             BreakForegroundLock(targetHwnd, fgHwnd);
         }
 
+        // Physical Actuation Hold Window: Record Down timestamp and enforce 35ms hold window before Up
+        if (type == InputEventType.MouseButtonDown)
+        {
+            _lastMouseDownTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
+        else if (type == InputEventType.MouseButtonUp)
+        {
+            if (_lastMouseDownTicks > 0)
+            {
+                long elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _lastMouseDownTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency;
+                if (elapsedMs < 35)
+                {
+                    Thread.Sleep((int)(35 - elapsedMs));
+                }
+            }
+        }
+
         uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE;
         uint mouseEventFlag = 0;
 
@@ -202,7 +220,7 @@ public sealed class WindowsSendInputSink : IInputSink
 
     public void InjectKeyboard(ushort virtualKey, ushort scanCode, bool isDown, uint unicodeChar)
     {
-        bool isCustomDesktop = Capture.DesktopSwitchManager.AttachCallingThreadToInputDesktop(out string desktopName) &&
+        bool isCustomDesktop = Capture.DesktopSwitchManager.IsCustomOrProtectedDesktopActive(out string desktopName) &&
                                !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
 
         uint flags = 0;
@@ -399,6 +417,27 @@ public sealed class WindowsSendInputSink : IInputSink
     }
 
     #region Win32 Declarations
+    private const uint GA_ROOT = 2;
+    private const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
+    private const uint SPIF_SENDCHANGE = 0x0002;
+    private const uint WM_CHAR = 0x0102;
+    private const uint WM_MOUSEMOVE = 0x0200;
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SendNotifyMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
     private const uint WM_LBUTTONDOWN = 0x0201;
     private const uint WM_LBUTTONUP = 0x0202;
     private const uint WM_RBUTTONDOWN = 0x0204;
@@ -552,6 +591,13 @@ public sealed class WindowsSendInputSink : IInputSink
 
 public sealed class InputInjectionEngine : IDisposable
 {
+    private volatile int _lastInjectedScreenX = -1;
+    private volatile int _lastInjectedScreenY = -1;
+    private long _lastInjectedTimeMs = 0;
+
+    public int LastInjectedScreenX => _lastInjectedScreenX;
+    public int LastInjectedScreenY => _lastInjectedScreenY;
+    public long LastInjectedTimeMs => Interlocked.Read(ref _lastInjectedTimeMs);
     private readonly IInputSink _sink;
     private DisplayInfo _activeDisplay;
     private int _eventsInCurrentSecond;
@@ -612,6 +658,10 @@ public sealed class InputInjectionEngine : IDisposable
         int dispH = Math.Max(1, _activeDisplay.Height);
         int pixelX = _activeDisplay.Left + (int)Math.Round(packet.NormalizedX * (dispW - 1));
         int pixelY = _activeDisplay.Top + (int)Math.Round(packet.NormalizedY * (dispH - 1));
+
+        _lastInjectedScreenX = pixelX;
+        _lastInjectedScreenY = pixelY;
+        Interlocked.Exchange(ref _lastInjectedTimeMs, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
         var copy = packet;
         // Enqueue to dedicated desktop-bound dispatcher thread for jitter-free, attached execution
