@@ -1,13 +1,15 @@
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EnterpriseRemote.Common.Models;
+using EnterpriseRemote.Common.Network;
 using EnterpriseRemote.ControlPlane.Services;
 using EnterpriseRemote.ControlPlane.Storage;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-
 using Microsoft.AspNetCore.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,6 +26,7 @@ builder.Services.AddSingleton<IControlPlaneStore, MemoryControlPlaneStore>();
 builder.Services.AddSingleton<PolicyEngine>();
 builder.Services.AddSingleton<SessionAuthorizationService>();
 builder.Services.AddSingleton<EnrollmentService>();
+builder.Services.AddSingleton<MasterKeyStore>();
 
 // Configure JSON serialization for Enums
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -156,6 +159,15 @@ store.SaveUser(rootUser);
 
 // Health & Liveness
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
+// Auth: Roles list (used by WebView2 controller health check and UI role introspection)
+app.MapGet("/api/v1/auth/roles", () => Results.Ok(new[]
+{
+    new { role = "Operator",      description = "Can request attended sessions on authorized devices." },
+    new { role = "Approver",      description = "Can approve attended session requests." },
+    new { role = "Administrator", description = "Full access: enroll, audit, emergency control, manage keys." },
+    new { role = "Auditor",       description = "Read-only access to audit logs and session history." }
+}));
 
 // Heartbeat Endpoint with auto-healing and permanent token synchronization
 app.MapPost("/api/v1/devices/{deviceId}/heartbeat", async (string deviceId, HttpContext ctx, IControlPlaneStore s) =>
@@ -422,7 +434,160 @@ app.MapGet("/api/v1/audit/events", (string userId, string? deviceId, string? ope
     return Results.Ok(events);
 });
 
-// 8. Streaming Hub: Host (Desktop Agent) connection
+// 8. Gateway: LAN adapter discovery — returns the host's active LAN adapters and primary Wi-Fi/LAN IP.
+// The web UI reads this to populate the "Wi-Fi (LAN IP)" chip so users click to switch instantly.
+app.MapGet("/api/v1/gateway/lan", () =>
+{
+    var adapters = LanDiscoveryUtils.GetActiveLanAdapters();
+    string primaryIp = adapters.Count > 0 ? adapters[0].IpAddress : "127.0.0.1";
+    string? tailscaleIp = LanDiscoveryUtils.GetTailscaleIp();
+    return Results.Ok(new
+    {
+        primaryIp,
+        tailscaleIp,
+        primaryUrl = $"http://{primaryIp}:5293",
+        adapters = adapters.Select(a => new
+        {
+            a.IpAddress,
+            a.Name,
+            a.Description,
+            a.HasGateway,
+            a.IsWireless,
+            url = $"http://{a.IpAddress}:5293"
+        }).ToArray()
+    });
+});
+
+// 9. Gateway: Tunnel status — checks for an active Cloudflare/bore.pub tunnel URL written to public_tunnel_url.txt
+app.MapGet("/api/v1/gateway/tunnel", () =>
+{
+    string? tunnelUrl = LanDiscoveryUtils.TryReadPublicTunnelUrl();
+    bool active = !string.IsNullOrEmpty(tunnelUrl);
+    return Results.Ok(new
+    {
+        active,
+        url = tunnelUrl,
+        tailscaleIp = LanDiscoveryUtils.GetTailscaleIp(),
+        tailscaleUrl = LanDiscoveryUtils.GetTailscaleIp() is string tsIp
+            ? $"http://{tsIp}:5293"
+            : null,
+        message = active
+            ? $"Active tunnel: {tunnelUrl}"
+            : "No active Cloudflare tunnel found. Run scripts/start_tunnel.ps1 to start one."
+    });
+});
+
+// 10. Gateway: Start Tunnel — launches cloudflared in a new visible terminal window
+app.MapPost("/api/v1/gateway/start-tunnel", () =>
+{
+    try
+    {
+        // Locate the start_tunnel script relative to the server binary or project root
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string[] candidates =
+        [
+            Path.Combine(baseDir, "scripts", "start_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "scripts", "start_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "..", "scripts", "start_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "..", "..", "scripts", "start_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "..", "..", "..", "scripts", "start_tunnel.ps1"),
+        ];
+
+        string? scriptPath = candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
+
+        if (scriptPath != null)
+        {
+            // Launch cloudflare tunnel script in a new visible PowerShell terminal window
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                UseShellExecute = true,
+                CreateNoWindow = false,
+                WindowStyle = ProcessWindowStyle.Normal
+            });
+
+            return Results.Ok(new { success = true, message = "Cloudflare tunnel terminal launched! Public URL will appear in public_tunnel_url.txt within ~5 seconds." });
+        }
+
+        // Fallback: launch cloudflared directly if script not found
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "cloudflared",
+            Arguments = "tunnel --url http://localhost:5293",
+            UseShellExecute = true,
+            CreateNoWindow = false,
+            WindowStyle = ProcessWindowStyle.Normal
+        });
+        return Results.Ok(new { success = true, message = "Launched cloudflared tunnel directly. Monitoring for public URL..." });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new { success = false, message = $"Could not launch tunnel terminal: {ex.Message}. Please run scripts/start_tunnel.ps1 manually." });
+    }
+});
+
+// 11. Master Keys: List all keys for the user's org
+app.MapGet("/api/v1/master-keys", (string? userId, MasterKeyStore keyStore, IControlPlaneStore s) =>
+{
+    string orgId = "ORG-ENTERPRISE";
+    if (!string.IsNullOrEmpty(userId))
+    {
+        var user = s.GetUser(userId);
+        if (user != null) orgId = user.OrgId;
+    }
+    var keys = keyStore.GetKeysForOrg(orgId);
+    return Results.Ok(keys);
+});
+
+// 12. Master Keys: Create a new permanent master key
+app.MapPost("/api/v1/master-keys", async (HttpContext ctx, MasterKeyStore keyStore, IControlPlaneStore s) =>
+{
+    MasterKeyCreateRequest? req = null;
+    try { req = await ctx.Request.ReadFromJsonAsync<MasterKeyCreateRequest>(); } catch { }
+
+    if (req == null || string.IsNullOrWhiteSpace(req.SecretValue))
+    {
+        return Results.BadRequest(new { error = "secretValue is required." });
+    }
+
+    string orgId = req.OrgId ?? "ORG-ENTERPRISE";
+
+    var key = new MasterKeyEntry
+    {
+        KeyId = $"MK-{Guid.NewGuid().ToString("N")[..10].ToUpperInvariant()}",
+        OrgId = orgId,
+        Name = string.IsNullOrWhiteSpace(req.Name) ? "Universal Master Key" : req.Name,
+        SecretValue = req.SecretValue.Trim(),
+        Description = req.Description ?? string.Empty,
+        CreatedBy = req.CreatedBy ?? "admin",
+        CreatedAtUtc = DateTime.UtcNow,
+        IsActive = req.IsActive ?? true
+    };
+
+    keyStore.AddKey(key);
+    return Results.Created($"/api/v1/master-keys/{key.KeyId}", key);
+});
+
+// 13. Master Keys: Toggle enabled/disabled state
+app.MapMethods("/api/v1/master-keys/{keyId}/toggle", ["PATCH"], (string keyId, MasterKeyStore keyStore) =>
+{
+    var key = keyStore.GetKey(keyId);
+    if (key == null) return Results.NotFound(new { error = "Master key not found." });
+
+    key.IsActive = !key.IsActive;
+    return Results.Ok(key);
+});
+
+// 14. Master Keys: Delete / revoke a key
+app.MapDelete("/api/v1/master-keys/{keyId}", (string keyId, MasterKeyStore keyStore) =>
+{
+    bool removed = keyStore.RemoveKey(keyId);
+    if (!removed) return Results.NotFound(new { error = "Master key not found." });
+    return Results.Ok(new { status = "deleted", keyId });
+});
+
+// 15. Streaming Hub: Host (Desktop Agent) connection
 app.Map("/api/v1/stream/host", async (HttpContext ctx) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest)
@@ -451,7 +616,7 @@ app.Map("/api/v1/stream/host", async (HttpContext ctx) =>
     }
 });
 
-// 9. Streaming Hub: Viewer (Controller) connection
+// 16. Streaming Hub: Viewer (Controller) connection
 app.Map("/api/v1/stream/viewer", async (HttpContext ctx) =>
 {
     if (!ctx.WebSockets.IsWebSocketRequest)
@@ -484,7 +649,7 @@ app.MapFallbackToFile("index.html");
 
 app.Run();
 
-// DTO Records
+// ─── DTO Records ──────────────────────────────────────────────────────────────
 public record AuthRequest(string Email);
 public record AuthResponse(string UserId, string Email, string DisplayName, string OrgId, UserRole Role, string[] AuthorizedGroupIds);
 public record CreateInvitationRequest(string AdminUserId, string GroupId, int TtlMinutes = 15, bool AttendedRequired = true);
@@ -502,6 +667,50 @@ public record SessionResponseDto(
     string SignatureBase64,
     string ControlPlanePublicKeyPem);
 
+public record MasterKeyCreateRequest(
+    string? Name,
+    string SecretValue,
+    string? Description,
+    string? CreatedBy,
+    string? OrgId,
+    bool? IsActive);
+
+// ─── Master Key Store ─────────────────────────────────────────────────────────
+/// <summary>
+/// Lightweight in-memory store for permanent master access keys.
+/// A master key works across ALL enrolled devices in the org — no per-device pairing needed.
+/// </summary>
+public sealed class MasterKeyEntry
+{
+    public string KeyId { get; set; } = string.Empty;
+    public string OrgId { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string SecretValue { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string CreatedBy { get; set; } = string.Empty;
+    public DateTime CreatedAtUtc { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public sealed class MasterKeyStore
+{
+    private readonly ConcurrentDictionary<string, MasterKeyEntry> _keys = new();
+
+    public void AddKey(MasterKeyEntry key) => _keys[key.KeyId] = key;
+
+    public MasterKeyEntry? GetKey(string keyId)
+    {
+        _keys.TryGetValue(keyId, out var key);
+        return key;
+    }
+
+    public List<MasterKeyEntry> GetKeysForOrg(string orgId) =>
+        _keys.Values
+             .Where(k => k.OrgId.Equals(orgId, StringComparison.OrdinalIgnoreCase))
+             .OrderByDescending(k => k.CreatedAtUtc)
+             .ToList();
+
+    public bool RemoveKey(string keyId) => _keys.TryRemove(keyId, out _);
+}
+
 public partial class Program { }
-
-

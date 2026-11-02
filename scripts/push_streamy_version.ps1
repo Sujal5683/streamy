@@ -97,16 +97,25 @@ if (-not $staged) {
 
 # 5. Tag release
 Write-Host "[3/4] Creating release tags: $tagStreamy & $tagSemver..." -ForegroundColor Gray
-# Remove local tag if re-tagging
-git tag -d $tagStreamy 2>$null
-git tag -d $tagSemver 2>$null
+if (git tag -l $tagStreamy) {
+    git tag -d $tagStreamy | Out-Null
+}
+if (git tag -l $tagSemver) {
+    git tag -d $tagSemver | Out-Null
+}
 git tag -a $tagStreamy -m "Streamy Release V$normalizedVersion"
 git tag -a $tagSemver -m "Streamy Release V$normalizedVersion"
 
 # 6. Push to origin main with tags
 Write-Host "[4/4] Pushing branch 'main' and tags to origin..." -ForegroundColor Cyan
-git push origin main
-git push origin --tags
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    git push origin main
+    git push origin --tags
+} finally {
+    $ErrorActionPreference = $prevEAP
+}
 
 Write-Host "`n=======================================================" -ForegroundColor Green
 Write-Host " [SUCCESS] Streamy V$normalizedVersion successfully pushed to GitHub!" -ForegroundColor Green

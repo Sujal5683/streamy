@@ -624,8 +624,7 @@ class WebControllerApp {
         }
         if (this.dom.sidebarChipWifi) {
             this.dom.sidebarChipWifi.addEventListener('click', () => {
-                const lanIp = this.dom.gatewayLanVal.textContent || '192.168.1.1';
-                this.applyGatewayUrl(`http://${lanIp}:5293`);
+                this.switchToLanGateway();
             });
         }
         if (this.dom.sidebarChipLocalhost) {
@@ -1014,8 +1013,7 @@ class WebControllerApp {
 
         // Gateway Switcher Chips
         this.dom.chipWifi.addEventListener('click', () => {
-            const lanIp = this.dom.gatewayLanVal.textContent || '192.168.1.1';
-            this.applyGatewayUrl(`http://${lanIp}:5293`);
+            this.switchToLanGateway();
         });
         this.dom.chipLocalhost.addEventListener('click', () => {
             this.applyGatewayUrl('http://127.0.0.1:5293');
@@ -1171,10 +1169,14 @@ class WebControllerApp {
 
     applyGatewayUrl(newUrl) {
         if (!newUrl) return;
-        this.serverUrl = newUrl.replace(/\/$/, '');
+        const cleaned = newUrl.replace(/\/$/, '');
+        if (cleaned === this.serverUrl) return; // already on this gateway — no-op
+        this.serverUrl = cleaned;
         localStorage.setItem('ER_GATEWAY_URL', this.serverUrl);
+        // Mark that this URL was explicitly chosen so auto-fallback never overrides it
+        this._explicitGateway = true;
         this.updateGatewayChip();
-        this.showToast(`Gateway set to ${this.serverUrl}. Reconnecting...`, 'success');
+        this.showToast(`Gateway set to ${this.serverUrl}. Reconnecting...`, 'info');
         this.authenticateUser(this.dom.userSelect.value);
     }
 
@@ -1202,13 +1204,19 @@ class WebControllerApp {
             if (resp && resp.ok) {
                 const data = await resp.json();
                 if (data.active && data.url) {
+                    // applyGatewayUrl handles toast + auth — no extra toast here
                     this.applyGatewayUrl(data.url);
-                    this.showToast(`Applied active Cloudflare Tunnel: ${data.url}`, 'success');
+                    return;
+                }
+                if (data.tailscaleUrl) {
+                    // Tailscale is a great secondary option when Cloudflare isn't active
+                    this.showToast(`No Cloudflare tunnel active. Trying Tailscale: ${data.tailscaleUrl}`, 'info');
+                    this.applyGatewayUrl(data.tailscaleUrl);
                     return;
                 }
             }
         } catch { }
-        this.showToast('No active Cloudflare tunnel detected. Launching tunnel terminal...', 'info');
+        this.showToast('No active tunnel detected. Launching Cloudflare tunnel terminal...', 'info');
         await this.launchTunnelTerminal();
     }
 
@@ -1281,12 +1289,87 @@ class WebControllerApp {
         const defaultEmail = this.dom.userSelect.value || 'admin@corp.internal';
         await this.authenticateUser(defaultEmail);
 
+        // Populate LAN IP chip with the real adapter IP from the backend
+        this.refreshGatewayLanIp();
+
         // Auto-discover newly enrolled devices every 3 seconds while not in an active session
         setInterval(() => {
             if (!this.activeSession && this.currentUser) {
                 this.refreshDeviceList();
             }
         }, 3000);
+
+        // Refresh LAN IP every 30 s to catch network changes (Wi-Fi roam, VPN up/down, etc.)
+        setInterval(() => this.refreshGatewayLanIp(), 30_000);
+    }
+
+    /**
+     * Switches the gateway to the real LAN/Wi-Fi IP fetched live from the backend.
+     * Always queries /api/v1/gateway/lan so the IP is never stale/hardcoded.
+     */
+    async switchToLanGateway() {
+        try {
+            const resp = await this.fetchGatewayApi('/api/v1/gateway/lan');
+            if (resp && resp.ok) {
+                const data = await resp.json();
+
+                // Prefer wireless adapter; fall back to primary LAN IP
+                let ip = data.primaryIp;
+                if (data.adapters && Array.isArray(data.adapters)) {
+                    const wifi = data.adapters.find(a => a.isWireless && a.ipAddress);
+                    if (wifi) ip = wifi.ipAddress;
+                }
+
+                if (ip && ip !== '127.0.0.1') {
+                    // Also update the DOM element so it stays in sync
+                    if (this.dom.gatewayLanVal) this.dom.gatewayLanVal.textContent = ip;
+                    this.applyGatewayUrl(`http://${ip}:5293`);
+                    return;
+                }
+            }
+        } catch (err) {
+            console.warn('[Gateway] LAN IP fetch failed:', err.message);
+        }
+
+        // Backend unreachable — use whatever is in the DOM (may be stale)
+        const fallbackIp = this.dom.gatewayLanVal?.textContent?.trim();
+        if (fallbackIp && fallbackIp !== '192.168.1.1' && fallbackIp !== '127.0.0.1') {
+            this.applyGatewayUrl(`http://${fallbackIp}:5293`);
+        } else {
+            this.showToast('Could not detect LAN IP. Backend may be offline.', 'error');
+        }
+    }
+
+    /**
+     * Calls GET /api/v1/gateway/lan and sets the gateway-lan-val element to the
+     * real primary LAN IP so the Wi-Fi chip switches to the correct address.
+     */
+    async refreshGatewayLanIp() {
+        try {
+            const resp = await this.fetchGatewayApi('/api/v1/gateway/lan');
+            if (!resp) return;
+            const data = await resp.json();
+
+            // Update the LAN chip value shown in the UI
+            if (data.primaryIp && this.dom.gatewayLanVal) {
+                this.dom.gatewayLanVal.textContent = data.primaryIp;
+            }
+
+            // If a wireless adapter exists, prefer that for the Wi-Fi chip
+            if (data.adapters && Array.isArray(data.adapters)) {
+                const wifi = data.adapters.find(a => a.isWireless);
+                if (wifi && wifi.ipAddress && this.dom.gatewayLanVal) {
+                    this.dom.gatewayLanVal.textContent = wifi.ipAddress;
+                }
+            }
+
+            // Log Tailscale detection for diagnostics
+            if (data.tailscaleIp) {
+                console.log('[Gateway] Tailscale IP detected:', data.tailscaleIp);
+            }
+        } catch (err) {
+            console.warn('[Gateway] LAN IP discovery failed:', err.message);
+        }
     }
 
     async authenticateUser(email) {
@@ -1306,8 +1389,15 @@ class WebControllerApp {
             this.dom.gatewayStatusVal.textContent = `Offline • ${err.message}`;
             this.dom.gatewayStatusVal.className = 'stat-val warn';
             this.showToast(`Gateway error: ${err.message}`, 'error');
-            if (typeof window !== 'undefined' && window.location && window.location.origin && this.serverUrl !== window.location.origin && window.location.origin.startsWith('http')) {
-                console.warn(`Gateway ${this.serverUrl} unreachable. Falling back to local origin: ${window.location.origin}`);
+
+            // Only auto-fall-back to the page origin on the very first load
+            // (i.e. the user has NOT explicitly chosen a gateway). If they chose
+            // Wi-Fi / Tunnel / custom URL, honour that choice — never silently reset.
+            if (!this._explicitGateway &&
+                typeof window !== 'undefined' &&
+                window.location?.origin?.startsWith('http') &&
+                this.serverUrl !== window.location.origin) {
+                console.warn(`[Gateway] Initial load fallback: ${this.serverUrl} → ${window.location.origin}`);
                 this.serverUrl = window.location.origin;
                 localStorage.setItem('ER_GATEWAY_URL', this.serverUrl);
                 this.updateGatewayChip();

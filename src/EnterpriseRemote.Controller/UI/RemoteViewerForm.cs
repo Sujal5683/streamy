@@ -194,7 +194,7 @@ public sealed class RemoteViewerForm : Form
 
             var envOptions = new CoreWebView2EnvironmentOptions
             {
-                AdditionalBrowserArguments = "--enable-features=VaapiVideoDecoder,RawDraw --ignore-gpu-blocklist --disable-background-timer-throttling"
+                AdditionalBrowserArguments = "--disable-background-timer-throttling --allow-insecure-localhost"
             };
 
             var env = await CoreWebView2Environment.CreateAsync(
@@ -209,6 +209,27 @@ public sealed class RemoteViewerForm : Form
             _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             _webView.CoreWebView2.Settings.IsZoomControlEnabled = false;
             _webView.CoreWebView2.Settings.AreDevToolsEnabled = true;
+
+            // Render instant cyber splash screen to guarantee 0ms dark theme without white flash
+            _webView.NavigateToString(@"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#07090e; color:#00e5ff; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; overflow:hidden; user-select:none; }
+    .loader { width:46px; height:46px; border:3px solid rgba(0,229,255,0.15); border-top-color:#00e5ff; border-radius:50%; animation:spin 0.75s cubic-bezier(0.4, 0, 0.2, 1) infinite; margin-bottom:20px; box-shadow:0 0 15px rgba(0,229,255,0.25); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .title { font-size:15px; font-weight:700; letter-spacing:1.5px; color:#f8fafc; margin-bottom:6px; }
+    .sub { font-size:12px; color:#64748b; font-family:Consolas,monospace; }
+  </style>
+</head>
+<body>
+  <div class='loader'></div>
+  <div class='title'>ENTERPRISE REMOTE ACCESS</div>
+  <div class='sub'>Connecting Secure Direct3D Session Engine...</div>
+</body>
+</html>");
 
             // Handle messages bridged from JS
             _webView.CoreWebView2.WebMessageReceived += (_, args) =>
@@ -231,6 +252,18 @@ public sealed class RemoteViewerForm : Form
                 catch { }
             };
 
+            // Catch navigation issues & auto-retry if port 5293 takes a moment to bind
+            int retryCount = 0;
+            _webView.NavigationCompleted += async (_, e) =>
+            {
+                if (!e.IsSuccess && retryCount < 10)
+                {
+                    retryCount++;
+                    await Task.Delay(600);
+                    _webView.CoreWebView2?.Navigate(TargetServerUrl);
+                }
+            };
+
             // Navigate to the ControlPlane web controller
             _webView.CoreWebView2.Navigate(TargetServerUrl);
         }
@@ -242,10 +275,10 @@ public sealed class RemoteViewerForm : Form
 
     private static async Task EnsureControlPlaneRunningAsync()
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(600) };
+        using var http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(1000) };
         try
         {
-            var res = await http.GetAsync($"{TargetServerUrl}/api/v1/auth/roles");
+            var res = await http.GetAsync(TargetServerUrl);
             if (res.IsSuccessStatusCode) return; // ControlPlane already alive and listening!
         }
         catch { }
@@ -285,13 +318,13 @@ public sealed class RemoteViewerForm : Form
                 };
                 Process.Start(psi);
 
-                // Wait up to 3 seconds for server to bind port
-                for (int i = 0; i < 15; i++)
+                // Wait up to 5 seconds for server to bind port
+                for (int i = 0; i < 25; i++)
                 {
                     await Task.Delay(200);
                     try
                     {
-                        var res = await http.GetAsync($"{TargetServerUrl}/api/v1/auth/roles");
+                        var res = await http.GetAsync(TargetServerUrl);
                         if (res.IsSuccessStatusCode) break;
                     }
                     catch { }
