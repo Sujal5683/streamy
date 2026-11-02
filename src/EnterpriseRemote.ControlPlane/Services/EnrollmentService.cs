@@ -43,6 +43,7 @@ public sealed class EnrollmentService
             OrgId = orgId,
             GroupId = groupId,
             TokenHash = tokenHash,
+            PlaintextCode = rawCode,
             CreatedByUserId = createdByUserId,
             CreatedAtUtc = now,
             ExpiresAtUtc = now.AddMinutes(ttlMinutes),
@@ -87,27 +88,45 @@ public sealed class EnrollmentService
             return new EnrollmentRedemptionResult(false, null, null, "Invalid device cryptographic public key.");
         }
 
-        // 3. Resolve invitation — try full code hash first, then short PIN fallback
+        // 3. Resolve invitation — match by full code hash, prefix-added hash, short PIN, plaintext code, or suffix
         string trimmedCode = invitationCode.Trim();
+        string upperCode = trimmedCode.ToUpperInvariant();
+        string withPrefix = upperCode.StartsWith("INV-", StringComparison.OrdinalIgnoreCase)
+            ? upperCode
+            : $"INV-{upperCode}";
+
         EnrollmentInvitation? invitation = null;
         bool redeemedByShortPin = false;
 
         // Attempt 1: standard full-token hash lookup
-        string tokenHash = CryptoUtils.ComputeSha256(trimmedCode);
-        invitation = _store.FindInvitationByHash(tokenHash);
+        invitation = _store.FindInvitationByHash(CryptoUtils.ComputeSha256(trimmedCode));
 
-        // Attempt 2: short PIN direct lookup (4-digit code)
-        if (invitation == null && trimmedCode.Length == 4 && int.TryParse(trimmedCode, out _))
+        // Attempt 1b: uppercase hash lookup
+        if (invitation == null && trimmedCode != upperCode)
+        {
+            invitation = _store.FindInvitationByHash(CryptoUtils.ComputeSha256(upperCode));
+        }
+
+        // Attempt 1c: hash with INV- prepended (if user entered without INV-)
+        if (invitation == null)
+        {
+            invitation = _store.FindInvitationByHash(CryptoUtils.ComputeSha256(withPrefix));
+        }
+
+        // Attempt 2: short PIN or suffix lookup (numeric or alphanumeric, 4+ chars)
+        if (invitation == null)
         {
             invitation = _store.FindInvitationByShortPin(trimmedCode);
-            if (invitation != null)
-            {
-                redeemedByShortPin = true;
-                // Use ShortPin as the effective token hash for redemption
-                tokenHash = CryptoUtils.ComputeSha256(trimmedCode);
-                // The store key for TryRedeemInvitation is the invitation's TokenHash
-                tokenHash = invitation.TokenHash;
-            }
+        }
+        if (invitation == null && trimmedCode != upperCode)
+        {
+            invitation = _store.FindInvitationByShortPin(upperCode);
+        }
+
+        // Attempt 3: direct store hash / plaintext code lookup
+        if (invitation == null)
+        {
+            invitation = _store.FindInvitationByHash(trimmedCode);
         }
 
         if (invitation == null)
@@ -127,6 +146,15 @@ public sealed class EnrollmentService
             RecordAttempt(clientIp);
             return new EnrollmentRedemptionResult(false, null, null, "Enrollment invitation has expired.");
         }
+
+        if (!string.IsNullOrEmpty(invitation.ShortPin) &&
+            (string.Equals(trimmedCode, invitation.ShortPin, StringComparison.OrdinalIgnoreCase) || trimmedCode.Length == 4))
+        {
+            redeemedByShortPin = true;
+        }
+
+        // Use the invitation's canonical TokenHash for TryRedeemInvitation
+        string tokenHash = invitation.TokenHash;
 
         // 4. Generate Unique Device ID & Cryptographic Registration with Permanent Access Token
         string deviceId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";

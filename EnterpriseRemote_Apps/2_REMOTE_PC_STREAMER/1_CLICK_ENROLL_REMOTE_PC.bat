@@ -13,46 +13,39 @@ echo   your Main PC (operator/controller).
 echo.
 echo   BEFORE YOU CONTINUE — ensure the following:
 echo     1. The Main PC is running START_MAIN_PC.vbs (or .bat)
-echo     2. Both PCs are on the same Wi-Fi or LAN network
-echo     3. You have generated an Invitation Code from the Main PC
+echo     2. Both PCs are on the same Wi-Fi, LAN, or using Cloudflare Tunnel/Tailscale
+echo     3. You have generated an Invitation Code or 4-Digit PIN from the Main PC
 echo        (Click "Connect Other PC (Enroll Host)" in the Controller UI)
 echo.
 echo  ================================================================
 echo.
 
-:: ── Step 1: Main PC IP ──────────────────────────────────────────────────────
-set /p MAIN_IP="Enter your Main PC IP address (e.g. 192.168.1.10) [default: 127.0.0.1]: "
+:: ── Step 1: Main PC IP or Gateway URL ────────────────────────────────────────
+set /p MAIN_IP="Enter your Main PC Gateway URL or IP (e.g. 10.10.79.117, 192.168.1.5, or trycloudflare URL) [default: 127.0.0.1]: "
 if "%MAIN_IP%"=="" set MAIN_IP=127.0.0.1
 
-:: Clean and format entered URL/IP
-set SERVER_URL=%MAIN_IP%
-echo %SERVER_URL% | findstr /i "trycloudflare.com" >nul
-if %ERRORLEVEL% equ 0 (
-    echo %SERVER_URL% | findstr /i "http" >nul
-    if %ERRORLEVEL% neq 0 (
-        set SERVER_URL=https://%MAIN_IP%
-    )
-) else (
-    echo %SERVER_URL% | findstr /i "http" >nul
-    if %ERRORLEVEL% neq 0 (
-        set SERVER_URL=http://%MAIN_IP%:5293
-    )
-)
+:: Strip quotes and spaces
+set SERVER_URL=%MAIN_IP:"=%
+set SERVER_URL=%SERVER_URL: =%
 
 echo.
 echo  Target Control Plane: %SERVER_URL%
 echo.
 
-:: ── Step 2: Invitation Code ─────────────────────────────────────────────────
-set /p INVITATION_CODE="Enter the Invitation Code from your Main PC Controller: "
+:: ── Step 2: Invitation Code or 4-Digit Quick PIN ─────────────────────────────
+set /p INVITATION_CODE="Enter the Invitation Code or 4-Digit Quick PIN from your Main PC: "
 if "%INVITATION_CODE%"=="" (
     echo.
-    echo  [ERROR] An Invitation Code is required for secure enrollment.
+    echo  [ERROR] An Invitation Code or PIN is required for secure enrollment.
     echo          Generate one from the Main PC Controller app and try again.
     echo.
     pause
     exit /b 1
 )
+
+:: Strip quotes and spaces
+set INVITATION_CODE=%INVITATION_CODE:"=%
+set INVITATION_CODE=%INVITATION_CODE: =%
 
 echo.
 echo  [*] Enrolling this device with %SERVER_URL%...
@@ -66,15 +59,29 @@ cd /d "%~dp0"
 
 if %ENROLL_RESULT% neq 0 (
     echo.
-    echo  [ERROR] Enrollment failed ^(exit code: %ENROLL_RESULT%^).
+    echo  ================================================================
+    echo  [ERROR] Enrollment failed (exit code: %ENROLL_RESULT%).
+    echo  ================================================================
     echo.
-    echo  Troubleshooting checklist:
-    echo    - Is START_MAIN_PC running on the Main PC?
-    echo    - Can you ping %MAIN_IP% from this PC?
-    echo    - Has the Invitation Code expired? ^(codes expire in 2 hours^)
-    echo    - Is Windows Firewall blocking port 5293?
-    echo      If so: netsh advfirewall firewall add rule name="EnterpriseRemote"
-    echo             protocol=TCP dir=in localport=5293 action=allow
+    echo  Common causes and solutions:
+    echo.
+    echo  1. CAMPUS / PUBLIC WI-FI ISOLATION (Most common!):
+    echo     Many university/office Wi-Fi networks block direct device-to-device communication.
+    echo     -^> Solution A: Turn on your phone's Mobile Hotspot and connect BOTH PCs to it.
+    echo     -^> Solution B: On the Main PC, click "Launch Terminal Tunnel" (Cloudflare)
+    echo        and enter the https://...trycloudflare.com URL here!
+    echo     -^> Solution C: Use Tailscale (connect both PCs with 100.x.y.z IP).
+    echo.
+    echo  2. CONTROLLER NOT RUNNING:
+    echo     -^> Ensure START_MAIN_PC is running on your Main PC.
+    echo.
+    echo  3. WRONG IP OR CODE:
+    echo     -^> Double-check the Gateway URL shown in your Main PC's top bar.
+    echo     -^> Generate a fresh 4-digit PIN or invitation code in the Controller.
+    echo.
+    echo  4. WINDOWS FIREWALL:
+    echo     -^> Run this on your Main PC as Administrator:
+    echo        netsh advfirewall firewall add rule name="EnterpriseRemote" protocol=TCP dir=in localport=5293 action=allow
     echo.
     pause
     exit /b %ENROLL_RESULT%

@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EnterpriseRemote.Common.Cryptography;
 using EnterpriseRemote.Common.Models;
+using EnterpriseRemote.Common.Network;
 using EnterpriseRemote.Common.Protocol;
 using EnterpriseRemote.Host.Service.Install;
 using EnterpriseRemote.Host.Service.Ipc;
@@ -49,6 +50,7 @@ public static class Program
             if (args[i].Equals("--server", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 serverUrl = args[i + 1];
+        serverUrl = UrlUtils.NormalizeServerUrl(serverUrl);
             }
         }
 
@@ -80,6 +82,8 @@ public static class Program
 
     private static async Task<int> EnrollDeviceAsync(string serverUrl, string invitationCode)
     {
+        serverUrl = UrlUtils.NormalizeServerUrl(serverUrl);
+        invitationCode = invitationCode.Trim();
         Console.WriteLine($"[*] Initiating zero-trust cryptographic enrollment with: {serverUrl}");
         Console.WriteLine($"[*] Invitation Code: {invitationCode}");
 
@@ -89,7 +93,7 @@ public static class Program
         string osVersion = Environment.OSVersion.ToString();
         string macAddress = "00:50:56:C0:00:08"; // Standard primary adapter MAC
 
-        using var http = new HttpClient { BaseAddress = new Uri(serverUrl), Timeout = TimeSpan.FromSeconds(10) };
+        using var http = new HttpClient { BaseAddress = new Uri(serverUrl), Timeout = TimeSpan.FromSeconds(20) };
         var payload = new
         {
             InvitationCode = invitationCode,
@@ -146,6 +150,14 @@ public static class Program
         {
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"[!] Connection error during enrollment: {ex.Message}");
+            if (ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                Console.WriteLine($"    Could not reach Control Plane at: {serverUrl}");
+                Console.WriteLine("    Please check:");
+                Console.WriteLine("    1. Is the Control Plane server running on the Main PC?");
+                Console.WriteLine("    2. If on university/office Wi-Fi: AP Client Isolation may be blocking direct LAN connections.");
+                Console.WriteLine("       -> Use a phone Mobile Hotspot for both PCs, or use Cloudflare Tunnel / Tailscale!");
+            }
             Console.ResetColor();
             return 1;
         }

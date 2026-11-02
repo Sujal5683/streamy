@@ -71,6 +71,33 @@ public class QuickPinAndLanStreamingTests
     }
 
     [Fact]
+    public void EnrollmentService_RedeemsWithFlexibleCodeFormats()
+    {
+        var store = new MemoryControlPlaneStore();
+        var enrollmentSvc = new EnrollmentService(store);
+        var (_, devPubKey) = CryptoUtils.GenerateEcdsaKeyPair();
+
+        // 1. Redeem without "INV-" prefix
+        var (_, plainCode1) = enrollmentSvc.CreateInvitation("ORG-1", "GRP-1", "ADMIN-1");
+        string withoutPrefix = plainCode1.StartsWith("INV-", StringComparison.OrdinalIgnoreCase)
+            ? plainCode1.Substring(4)
+            : plainCode1;
+        var res1 = enrollmentSvc.RedeemInvitation(withoutPrefix, "HOST-1", "Win11", "00:11:22:33:44:55", devPubKey, "10.0.0.1");
+        Assert.True(res1.Success, $"Failed to redeem without prefix: {res1.ErrorMessage}");
+
+        // 2. Redeem with last 4 characters suffix (e.g. D335)
+        var (_, plainCode2) = enrollmentSvc.CreateInvitation("ORG-1", "GRP-1", "ADMIN-1");
+        string suffix = plainCode2.Substring(plainCode2.Length - 4);
+        var res2 = enrollmentSvc.RedeemInvitation(suffix, "HOST-2", "Win11", "00:11:22:33:44:56", devPubKey, "10.0.0.2");
+        Assert.True(res2.Success, $"Failed to redeem with suffix: {res2.ErrorMessage}");
+
+        // 3. Redeem with lowercase full code
+        var (_, plainCode3) = enrollmentSvc.CreateInvitation("ORG-1", "GRP-1", "ADMIN-1");
+        var res3 = enrollmentSvc.RedeemInvitation(plainCode3.ToLowerInvariant(), "HOST-3", "Win11", "00:11:22:33:44:57", devPubKey, "10.0.0.3");
+        Assert.True(res3.Success, $"Failed to redeem with lowercase: {res3.ErrorMessage}");
+    }
+
+    [Fact]
     public async Task ZeroBufferbloatChannel_DropsOldestFrames_PreservesZeroLag()
     {
         var channel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1)

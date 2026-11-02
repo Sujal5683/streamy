@@ -253,18 +253,29 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
 
     public EnrollmentInvitation? FindInvitationByHash(string tokenHash)
     {
-        // Also match by ShortPin so callers can pass a PIN directly
+        if (string.IsNullOrWhiteSpace(tokenHash)) return null;
+        string clean = tokenHash.Trim();
         return _invitations.Values.FirstOrDefault(i =>
-            i.TokenHash.Equals(tokenHash, StringComparison.OrdinalIgnoreCase) ||
-            (!string.IsNullOrEmpty(i.ShortPin) && i.ShortPin.Equals(tokenHash, StringComparison.Ordinal)));
+            i.TokenHash.Equals(clean, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrEmpty(i.ShortPin) && i.ShortPin.Equals(clean, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(i.PlaintextCode) && (
+                i.PlaintextCode.Equals(clean, StringComparison.OrdinalIgnoreCase) ||
+                i.PlaintextCode.Replace("-", "").Equals(clean.Replace("-", ""), StringComparison.OrdinalIgnoreCase) ||
+                (clean.Length >= 4 && i.PlaintextCode.EndsWith(clean, StringComparison.OrdinalIgnoreCase))
+            )));
     }
 
     public EnrollmentInvitation? FindInvitationByShortPin(string shortPin)
     {
-        if (string.IsNullOrEmpty(shortPin)) return null;
+        if (string.IsNullOrWhiteSpace(shortPin)) return null;
+        string clean = shortPin.Trim().ToUpperInvariant();
         return _invitations.Values.FirstOrDefault(i =>
-            !string.IsNullOrEmpty(i.ShortPin) &&
-            i.ShortPin.Equals(shortPin, StringComparison.Ordinal));
+            (!string.IsNullOrEmpty(i.ShortPin) && i.ShortPin.Equals(clean, StringComparison.OrdinalIgnoreCase)) ||
+            (!string.IsNullOrEmpty(i.PlaintextCode) && (
+                i.PlaintextCode.Equals(clean, StringComparison.OrdinalIgnoreCase) ||
+                i.PlaintextCode.Replace("-", "").Equals(clean.Replace("-", ""), StringComparison.OrdinalIgnoreCase) ||
+                i.PlaintextCode.EndsWith(clean, StringComparison.OrdinalIgnoreCase)
+            )));
     }
 
     public bool TryRedeemInvitation(string tokenHash, string deviceId)

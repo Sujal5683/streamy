@@ -56,6 +56,12 @@ New-Item -ItemType Directory -Path $remoteInst -Force | Out-Null
 Copy-Item -Path "$remoteBin\*" -Destination "$remotePkg" -Recurse -Force
 Copy-Item -Path "$remoteBin\*" -Destination "$remoteInst" -Recurse -Force
 
+# Clean up any leftover test identity files from Remote PC distribution folders before packaging
+@($remoteDir, $remoteBin, $remotePkg, $remoteInst) | ForEach-Object {
+    Remove-Item (Join-Path $_ "device_identity.json") -Force -ErrorAction SilentlyContinue
+    Remove-Item (Join-Path $_ "server_url.txt") -Force -ErrorAction SilentlyContinue
+}
+
 # 5. Repackage Standalone Distribution ZIPs
 if (-not $SkipZip) {
     Write-Host "`n[5/5] Re-packaging standalone distribution zip archives..."

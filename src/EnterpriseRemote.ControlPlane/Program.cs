@@ -298,7 +298,8 @@ app.MapPost("/api/v1/invitations/create", (CreateInvitationRequest req, Enrollme
         invitation.InvitationId,
         plainCode,
         invitation.ExpiresAtUtc,
-        invitation.GroupId));
+        invitation.GroupId,
+        invitation.ShortPin));
 });
 
 // 3. Enrollment: Redeem (Device Registration)
@@ -472,12 +473,17 @@ app.MapGet("/api/v1/gateway/lan", () =>
 {
     var adapters = LanDiscoveryUtils.GetActiveLanAdapters();
     string primaryIp = adapters.Count > 0 ? adapters[0].IpAddress : "127.0.0.1";
+    string? wirelessIp = adapters.FirstOrDefault(a => a.IsWireless).IpAddress;
+    string wifiIp = !string.IsNullOrEmpty(wirelessIp) ? wirelessIp : primaryIp;
     string? tailscaleIp = LanDiscoveryUtils.GetTailscaleIp();
     return Results.Ok(new
     {
         primaryIp,
+        wirelessIp,
+        wifiIp,
         tailscaleIp,
         primaryUrl = $"http://{primaryIp}:5293",
+        wifiUrl = $"http://{wifiIp}:5293",
         adapters = adapters.Select(a => new
         {
             a.IpAddress,
@@ -772,7 +778,7 @@ app.Run();
 public record AuthRequest(string Email);
 public record AuthResponse(string UserId, string Email, string DisplayName, string OrgId, UserRole Role, string[] AuthorizedGroupIds);
 public record CreateInvitationRequest(string AdminUserId, string GroupId, int TtlMinutes = 15, bool AttendedRequired = true);
-public record CreateInvitationResponse(string InvitationId, string InvitationCode, DateTime ExpiresAtUtc, string GroupId);
+public record CreateInvitationResponse(string InvitationId, string InvitationCode, DateTime ExpiresAtUtc, string GroupId, string? ShortPin = null);
 public record DeviceHeartbeatRequest(string? PermanentAccessToken = null, string? Hostname = null);
 public record RedeemInvitationRequest(string InvitationCode, string Hostname, string OsVersion, string MacAddress, string PublicKeyPem);
 public record SessionRequestDto(string OperatorId, string DeviceId, SessionCapabilities RequestedCapabilities, string? PermanentAccessToken = null);

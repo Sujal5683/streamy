@@ -1443,6 +1443,42 @@ class WebControllerApp {
         this.authenticateUser(this.dom.userSelect.value);
     }
 
+    /**
+     * Resilient Control Plane API caller.
+     * Tries the configured this.serverUrl first. If unreachable (e.g. Wi-Fi router hairpin block,
+     * external Cloudflare tunnel edge latency, or mixed-content restriction), falls back gracefully
+     * to the local origin / 127.0.0.1:5293 so the Controller UI remains 100% responsive and connected!
+     */
+    async apiFetch(endpoint, options = {}) {
+        // 1. Try configured serverUrl
+        if (this.serverUrl) {
+            try {
+                const resp = await fetch(`${this.serverUrl}${endpoint}`, options);
+                if (resp && (resp.ok || (resp.status >= 400 && resp.status < 500))) return resp;
+            } catch (err) {
+                console.warn(`[Gateway] Fetch to ${this.serverUrl}${endpoint} failed (${err.message}). Trying fallback origin...`);
+            }
+        }
+
+        // 2. Fallback to current browser window origin if different
+        if (typeof window !== 'undefined' && window.location?.origin?.startsWith('http') && window.location.origin !== this.serverUrl) {
+            try {
+                const resp = await fetch(`${window.location.origin}${endpoint}`, options);
+                if (resp && (resp.ok || (resp.status >= 400 && resp.status < 500))) return resp;
+            } catch { }
+        }
+
+        // 3. Fallback to local loopback (127.0.0.1:5293)
+        if (this.serverUrl !== 'http://127.0.0.1:5293') {
+            try {
+                const resp = await fetch(`http://127.0.0.1:5293${endpoint}`, options);
+                if (resp && (resp.ok || (resp.status >= 400 && resp.status < 500))) return resp;
+            } catch { }
+        }
+
+        throw new Error(`Failed to reach Control Plane at ${this.serverUrl}`);
+    }
+
     async fetchGatewayApi(endpoint, options = {}) {
         const origins = [];
         if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http')) {
@@ -1669,7 +1705,7 @@ class WebControllerApp {
             const resp = await this.fetchGatewayApi('/api/v1/gateway/lan');
             if (resp && resp.ok) {
                 const data = await resp.json();
-                const ip = data.primaryIp || (data.adapters && data.adapters[0] ? data.adapters[0].ipAddress : null);
+                const ip = data.wifiIp || data.wirelessIp || data.primaryIp || (data.adapters && data.adapters[0] ? data.adapters[0].ipAddress : null);
 
                 if (ip && ip !== '127.0.0.1') {
                     this.detectedLanIp = ip;
@@ -1701,17 +1737,21 @@ class WebControllerApp {
             if (!resp || !resp.ok) return;
             const data = await resp.json();
 
-            if (data.primaryIp) {
-                this.detectedLanIp = data.primaryIp;
+            const ip = data.wifiIp || data.wirelessIp || data.primaryIp;
+            if (ip) {
+                this.detectedLanIp = ip;
                 if (this.dom.gatewayLanVal) {
-                    this.dom.gatewayLanVal.textContent = data.primaryIp;
+                    this.dom.gatewayLanVal.textContent = ip;
                 }
                 if (this.dom.sidebarDetectedLanIp) {
-                    this.dom.sidebarDetectedLanIp.textContent = data.primaryIp;
-                    this.dom.sidebarDetectedLanIp.title = `Click to connect via http://${data.primaryIp}:5293`;
+                    this.dom.sidebarDetectedLanIp.textContent = ip;
+                    this.dom.sidebarDetectedLanIp.title = `Click to connect via http://${ip}:5293`;
                 }
                 if (this.dom.sidebarChipWifi) {
-                    this.dom.sidebarChipWifi.title = `Switch to Local Wi-Fi / LAN (${data.primaryIp}:5293)`;
+                    this.dom.sidebarChipWifi.title = `Switch to Local Wi-Fi / LAN (${ip}:5293)`;
+                }
+                if (this.dom.chipWifi) {
+                    this.dom.chipWifi.title = `Switch to Local Wi-Fi / LAN (${ip}:5293)`;
                 }
             }
 
@@ -1751,7 +1791,7 @@ class WebControllerApp {
 
     async authenticateUser(email) {
         try {
-            const resp = await fetch(`${this.serverUrl}/api/v1/auth/token`, {
+            const resp = await this.apiFetch('/api/v1/auth/token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email })
@@ -1766,20 +1806,6 @@ class WebControllerApp {
             this.dom.gatewayStatusVal.textContent = `Offline • ${err.message}`;
             this.dom.gatewayStatusVal.className = 'stat-val warn';
             this.showToast(`Gateway error: ${err.message}`, 'error');
-
-            // Only auto-fall-back to the page origin on the very first load
-            // (i.e. the user has NOT explicitly chosen a gateway). If they chose
-            // Wi-Fi / Tunnel / custom URL, honour that choice — never silently reset.
-            if (!this._explicitGateway &&
-                typeof window !== 'undefined' &&
-                window.location?.origin?.startsWith('http') &&
-                this.serverUrl !== window.location.origin) {
-                console.warn(`[Gateway] Initial load fallback: ${this.serverUrl} → ${window.location.origin}`);
-                this.serverUrl = window.location.origin;
-                localStorage.setItem('ER_GATEWAY_URL', this.serverUrl);
-                this.updateGatewayChip();
-                this.authenticateUser(email);
-            }
         }
     }
 
@@ -1845,7 +1871,7 @@ class WebControllerApp {
     async refreshDeviceList() {
         if (!this.currentUser) return;
         try {
-            const resp = await fetch(`${this.serverUrl}/api/v1/devices?userId=${encodeURIComponent(this.currentUser.userId)}`);
+            const resp = await this.apiFetch(`/api/v1/devices?userId=${encodeURIComponent(this.currentUser.userId)}`);
             if (!resp.ok) throw new Error(`Device list failed: HTTP ${resp.status}`);
 
             const allDevices = await resp.json();
@@ -2072,7 +2098,7 @@ class WebControllerApp {
         if (!this.dom.masterKeysContainer) return;
         try {
             this.dom.masterKeysContainer.innerHTML = '<div class="device-empty-state">Loading permanent master keys...</div>';
-            const resp = await fetch(`${this.serverUrl}/api/v1/master-keys?userId=${encodeURIComponent(this.currentUser?.userId || '')}`);
+            const resp = await this.apiFetch(`/api/v1/master-keys?userId=${encodeURIComponent(this.currentUser?.userId || '')}`);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const keys = await resp.json();
             this.renderMasterKeys(keys);
@@ -2200,7 +2226,7 @@ class WebControllerApp {
         }
 
         try {
-            const resp = await fetch(`${this.serverUrl}/api/v1/master-keys`, {
+            const resp = await this.apiFetch('/api/v1/master-keys', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2230,7 +2256,7 @@ class WebControllerApp {
 
     async toggleMasterKey(keyId) {
         try {
-            const resp = await fetch(`${this.serverUrl}/api/v1/master-keys/${encodeURIComponent(keyId)}/toggle`, {
+            const resp = await this.apiFetch(`/api/v1/master-keys/${encodeURIComponent(keyId)}/toggle`, {
                 method: 'PATCH'
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -2244,7 +2270,7 @@ class WebControllerApp {
 
     async deleteMasterKey(keyId) {
         try {
-            const resp = await fetch(`${this.serverUrl}/api/v1/master-keys/${encodeURIComponent(keyId)}`, {
+            const resp = await this.apiFetch(`/api/v1/master-keys/${encodeURIComponent(keyId)}`, {
                 method: 'DELETE'
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -2259,7 +2285,7 @@ class WebControllerApp {
     async generateEnrollmentCode() {
         this.dom.wizardCode.textContent = 'Generating...';
         try {
-            const resp = await fetch(`${this.serverUrl}/api/v1/invitations/create`, {
+            const resp = await this.apiFetch('/api/v1/invitations/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2347,7 +2373,7 @@ class WebControllerApp {
     async emergencyKillHost(deviceId) {
         try {
             const adminId = this.currentUser ? this.currentUser.userId : 'USR-ADMIN-01';
-            const resp = await fetch(`${this.serverUrl}/api/v1/devices/${encodeURIComponent(deviceId)}/emergency-disable?adminUserId=${encodeURIComponent(adminId)}`, {
+            const resp = await this.apiFetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/emergency-disable?adminUserId=${encodeURIComponent(adminId)}`, {
                 method: 'POST'
             });
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -2409,7 +2435,7 @@ class WebControllerApp {
                 permanentAccessToken: enteredKey
             };
 
-            const resp = await fetch(`${this.serverUrl}/api/v1/sessions/request`, {
+            const resp = await this.apiFetch('/api/v1/sessions/request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(sessionPayload)
@@ -2422,8 +2448,11 @@ class WebControllerApp {
 
             this.activeSession = await resp.json();
 
-            // Connect WebSocket stream
-            this.streamClient.connect(this.serverUrl, this.selectedDevice.deviceId, this.activeSession.sessionId);
+            // Connect WebSocket stream (prefer local origin for instant zero-lag viewer loopback)
+            const relayHost = (typeof window !== 'undefined' && window.location?.origin?.startsWith('http'))
+                ? window.location.origin
+                : this.serverUrl;
+            this.streamClient.connect(relayHost, this.selectedDevice.deviceId, this.activeSession.sessionId);
 
             // Auto-detect tunnel or direct LAN
             const isTunnel = window.location.hostname.includes('trycloudflare.com') ||
@@ -2476,7 +2505,7 @@ class WebControllerApp {
                 permanentAccessToken: enteredKey
             };
 
-            const resp = await fetch(`${this.serverUrl}/api/v1/sessions/request`, {
+            const resp = await this.apiFetch('/api/v1/sessions/request', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(sessionPayload)
@@ -2487,7 +2516,10 @@ class WebControllerApp {
             }
 
             this.activeSession = await resp.json();
-            this.streamClient.connect(this.serverUrl, this.selectedDevice.deviceId, this.activeSession.sessionId);
+            const relayHost = (typeof window !== 'undefined' && window.location?.origin?.startsWith('http'))
+                ? window.location.origin
+                : this.serverUrl;
+            this.streamClient.connect(relayHost, this.selectedDevice.deviceId, this.activeSession.sessionId);
             this.setBadge('connected', 'Live Stream Reconnected');
             this.showToast(`Reconnected to ${this.selectedDevice.hostname}!`, 'success');
         } catch (err) {

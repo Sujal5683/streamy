@@ -78,6 +78,7 @@ public sealed class EnrollmentInvitation
     public string OrgId { get; set; } = string.Empty;
     public string GroupId { get; set; } = string.Empty;
     public string TokenHash { get; set; } = string.Empty;
+    public string? PlaintextCode { get; set; }
     public string CreatedByUserId { get; set; } = string.Empty;
     public DateTime CreatedAtUtc { get; set; }
     public DateTime ExpiresAtUtc { get; set; }
