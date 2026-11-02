@@ -1,4 +1,8 @@
-# update_bins.ps1 - Synchronize fresh Release binaries into all application folders
+# update_bins.ps1 - Compile, Publish & Synchronize Self-Contained Release Binaries
+param(
+    [switch]$SkipZip = $false
+)
+
 $root       = "c:\My Projects\SECURE AND ENTERPRISE STREAMING APP"
 $mainDir    = "$root\EnterpriseRemote_Apps\1_MAIN_PC_CONTROLLER"
 $mainBin    = "$mainDir\Bin"
@@ -7,180 +11,58 @@ $remoteBin  = "$remoteDir\Bin"
 $remotePkg  = "$root\RemotePC_Package"
 $remoteInst = "$root\RemotePC_Installer"
 
-$controlPlaneOut = "$root\src\EnterpriseRemote.ControlPlane\bin\Release\net8.0"
-$controllerOut   = "$root\src\EnterpriseRemote.Controller\bin\Release\net8.0-windows"
-$hostServiceOut  = "$root\src\EnterpriseRemote.Host.Service\bin\Release\net8.0-windows"
-$hostAgentOut    = "$root\src\EnterpriseRemote.Host.UserAgent\bin\Release\net8.0-windows"
-$commonOut       = "$root\src\EnterpriseRemote.Common\bin\Release\net8.0"
+Write-Host "==============================================================================="
+Write-Host " Enterprise Remote: Universal Binary Build & Distribution Synchronizer"
+Write-Host " Target Runtime: win-x64 (100% Self-Contained • Zero .NET Installation Needed)"
+Write-Host "===============================================================================`n"
 
-# Stop any running processes to prevent file locking
-Stop-Process -Name 'EnterpriseRemote.Host.Service','EnterpriseRemote.Host.UserAgent','EnterpriseRemote.Controller','EnterpriseRemote.ControlPlane' -Force -ErrorAction SilentlyContinue
+# 1. Stop any running processes to prevent file locking
+Write-Host "[1/5] Stopping running instances to release file locks..."
+Stop-Process -Name 'EnterpriseRemote.Host.Service','EnterpriseRemote.Host.UserAgent','EnterpriseRemote.Controller','EnterpriseRemote.ControlPlane','cloudflared' -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 800
 
-function Copy-BinFile {
-    param([string]$src, [string]$dst)
-    if (Test-Path $src) {
-        if (-not (Test-Path $dst)) {
-            New-Item -ItemType Directory -Path $dst -Force | Out-Null
-        }
-        $leaf = Split-Path $src -Leaf
-        Copy-Item $src (Join-Path $dst $leaf) -Force
-        Write-Host "  [OK] $leaf -> $(Split-Path $dst -Leaf)"
-    } else {
-        Write-Host "  [SKIP] Not found: $(Split-Path $src -Leaf)"
-    }
+# 2. Publish 1_MAIN_PC_CONTROLLER (ControlPlane + Controller)
+Write-Host "`n[2/5] Publishing 1_MAIN_PC_CONTROLLER binaries..."
+New-Item -ItemType Directory -Path $mainBin -Force | Out-Null
+dotnet publish "$root\src\EnterpriseRemote.ControlPlane\EnterpriseRemote.ControlPlane.csproj" -c Release -r win-x64 --self-contained true -o "$mainBin"
+dotnet publish "$root\src\EnterpriseRemote.Controller\EnterpriseRemote.Controller.csproj" -c Release -r win-x64 --self-contained true -o "$mainBin"
+
+# Copy brand assets, scripts, and tunnel binary to 1_MAIN_PC_CONTROLLER
+Copy-Item "$root\src\EnterpriseRemote.Controller\app.ico" "$mainBin\app.ico" -Force -ErrorAction SilentlyContinue
+Copy-Item "$root\src\EnterpriseRemote.Controller\app_logo.png" "$mainBin\app_logo.png" -Force -ErrorAction SilentlyContinue
+Copy-Item "$root\scripts\bin\cloudflared.exe" "$mainBin\cloudflared.exe" -Force -ErrorAction SilentlyContinue
+Copy-Item "$root\scripts\start_tunnel.ps1" "$mainBin\start_tunnel.ps1" -Force -ErrorAction SilentlyContinue
+Copy-Item "$root\scripts\start_tunnel.ps1" "$mainDir\start_tunnel.ps1" -Force -ErrorAction SilentlyContinue
+
+# Ensure wwwroot is fully copied
+if (Test-Path "$root\src\EnterpriseRemote.ControlPlane\wwwroot") {
+    Copy-Item -Path "$root\src\EnterpriseRemote.ControlPlane\wwwroot\*" -Destination "$mainBin\wwwroot" -Recurse -Force
+    Write-Host "  [OK] wwwroot -> $mainBin\wwwroot"
 }
 
-# ═══════════════════════════════════════════════════════════════════
-# 1_MAIN_PC_CONTROLLER\Bin
-# ═══════════════════════════════════════════════════════════════════
-Write-Host "`n=== Updating 1_MAIN_PC_CONTROLLER\Bin ==="
+# 3. Publish 2_REMOTE_PC_STREAMER (Host.Service + UserAgent)
+Write-Host "`n[3/5] Publishing 2_REMOTE_PC_STREAMER binaries..."
+New-Item -ItemType Directory -Path $remoteBin -Force | Out-Null
+dotnet publish "$root\src\EnterpriseRemote.Host.Service\EnterpriseRemote.Host.Service.csproj" -c Release -r win-x64 --self-contained true -o "$remoteBin"
+dotnet publish "$root\src\EnterpriseRemote.Host.UserAgent\EnterpriseRemote.Host.UserAgent.csproj" -c Release -r win-x64 --self-contained true -o "$remoteBin"
 
-# ControlPlane server
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.exe"                $mainBin
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.dll"                $mainBin
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.deps.json"          $mainBin
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.runtimeconfig.json" $mainBin
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.pdb"                $mainBin
-Copy-BinFile "$controlPlaneOut\appsettings.json"                                 $mainBin
-Copy-BinFile "$controlPlaneOut\appsettings.Development.json"                     $mainBin
-Copy-BinFile "$controlPlaneOut\appsettings.Production.json"                      $mainBin
+Copy-Item "$root\src\EnterpriseRemote.Controller\app.ico" "$remoteBin\app.ico" -Force -ErrorAction SilentlyContinue
+Copy-Item "$root\src\EnterpriseRemote.Controller\app_logo.png" "$remoteBin\app_logo.png" -Force -ErrorAction SilentlyContinue
 
-# Operator Controller GUI
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.exe"                    $mainBin
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.dll"                    $mainBin
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.deps.json"              $mainBin
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.runtimeconfig.json"     $mainBin
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.pdb"                    $mainBin
-Copy-BinFile "$controllerOut\FontAwesome.Sharp.dll"                              $mainBin
-if (Test-Path "$controllerOut\ReaLTaiizor.dll") {
-    Copy-BinFile "$controllerOut\ReaLTaiizor.dll"                                 $mainBin
+# 4. Synchronize RemotePC_Package and RemotePC_Installer
+Write-Host "`n[4/5] Synchronizing RemotePC_Package & RemotePC_Installer..."
+New-Item -ItemType Directory -Path $remotePkg -Force | Out-Null
+New-Item -ItemType Directory -Path $remoteInst -Force | Out-Null
+Copy-Item -Path "$remoteBin\*" -Destination "$remotePkg" -Recurse -Force
+Copy-Item -Path "$remoteBin\*" -Destination "$remoteInst" -Recurse -Force
+
+# 5. Repackage Standalone Distribution ZIPs
+if (-not $SkipZip) {
+    Write-Host "`n[5/5] Re-packaging standalone distribution zip archives..."
+    powershell -ExecutionPolicy Bypass -File "$root\scripts\create_zip.ps1" -SourceDir "$mainDir" -ZipPath "$root\EnterpriseRemote_Apps\1_MAIN_PC_CONTROLLER.zip"
+    powershell -ExecutionPolicy Bypass -File "$root\scripts\create_zip.ps1" -SourceDir "$remoteDir" -ZipPath "$root\EnterpriseRemote_Apps\2_REMOTE_PC_STREAMER.zip"
 }
 
-# Common library
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            $mainBin
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            $mainBin
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.deps.json"                       $mainBin
-
-# Brand assets & edge tunnel
-$iconSrc = "$root\src\EnterpriseRemote.Controller\app.ico"
-$logoSrc = "$root\src\EnterpriseRemote.Controller\app_logo.png"
-Copy-BinFile $iconSrc                                                            $mainBin
-Copy-BinFile $logoSrc                                                            $mainBin
-Copy-BinFile "$root\scripts\bin\cloudflared.exe"                                 $mainBin
-Copy-BinFile "$root\scripts\start_tunnel.ps1"                                    $mainBin
-Copy-BinFile "$root\scripts\start_tunnel.ps1"                                    $mainDir
-
-# ═══════════════════════════════════════════════════════════════════
-# 2_REMOTE_PC_STREAMER\Bin
-# ═══════════════════════════════════════════════════════════════════
-Write-Host "`n=== Updating 2_REMOTE_PC_STREAMER\Bin ==="
-
-# Host streaming service
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.exe"                 $remoteBin
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.dll"                 $remoteBin
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.deps.json"           $remoteBin
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.runtimeconfig.json"  $remoteBin
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.pdb"                 $remoteBin
-
-# System tray UserAgent
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.exe"                 $remoteBin
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.dll"                 $remoteBin
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.deps.json"           $remoteBin
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.runtimeconfig.json"  $remoteBin
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.pdb"                 $remoteBin
-Copy-BinFile "$hostAgentOut\FontAwesome.Sharp.dll"                               $remoteBin
-
-# Common library
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            $remoteBin
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            $remoteBin
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.deps.json"                       $remoteBin
-
-# Brand assets
-Copy-BinFile $iconSrc                                                            $remoteBin
-Copy-BinFile $logoSrc                                                            $remoteBin
-
-# ═══════════════════════════════════════════════════════════════════
-# RemotePC_Package
-# ═══════════════════════════════════════════════════════════════════
-Write-Host "`n=== Updating RemotePC_Package ==="
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.exe"                 $remotePkg
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.dll"                 $remotePkg
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.deps.json"           $remotePkg
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.runtimeconfig.json"  $remotePkg
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.pdb"                 $remotePkg
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.exe"                 $remotePkg
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.dll"                 $remotePkg
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.deps.json"           $remotePkg
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.runtimeconfig.json"  $remotePkg
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.pdb"                 $remotePkg
-Copy-BinFile "$hostAgentOut\FontAwesome.Sharp.dll"                               $remotePkg
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            $remotePkg
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            $remotePkg
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.deps.json"                       $remotePkg
-Copy-BinFile $iconSrc                                                            $remotePkg
-Copy-BinFile $logoSrc                                                            $remotePkg
-
-# ═══════════════════════════════════════════════════════════════════
-# RemotePC_Installer
-# ═══════════════════════════════════════════════════════════════════
-Write-Host "`n=== Updating RemotePC_Installer ==="
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.exe"                 $remoteInst
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.dll"                 $remoteInst
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.deps.json"           $remoteInst
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.runtimeconfig.json"  $remoteInst
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.pdb"                 $remoteInst
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.exe"                 $remoteInst
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.dll"                 $remoteInst
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.deps.json"           $remoteInst
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.runtimeconfig.json"  $remoteInst
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.pdb"                 $remoteInst
-Copy-BinFile "$hostAgentOut\FontAwesome.Sharp.dll"                               $remoteInst
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            $remoteInst
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            $remoteInst
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.deps.json"                       $remoteInst
-Copy-BinFile $iconSrc                                                            $remoteInst
-Copy-BinFile $logoSrc                                                            $remoteInst
-
-# ═══════════════════════════════════════════════════════════════════
-# dist/ folders (for development references)
-# ═══════════════════════════════════════════════════════════════════
-Write-Host "`n=== Updating dist folders ==="
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.exe"                "$root\dist\ControlPlane"
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.dll"                "$root\dist\ControlPlane"
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.deps.json"          "$root\dist\ControlPlane"
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.runtimeconfig.json" "$root\dist\ControlPlane"
-Copy-BinFile "$controlPlaneOut\EnterpriseRemote.ControlPlane.pdb"                "$root\dist\ControlPlane"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            "$root\dist\ControlPlane"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            "$root\dist\ControlPlane"
-
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.exe"                    "$root\dist\Controller"
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.dll"                    "$root\dist\Controller"
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.deps.json"              "$root\dist\Controller"
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.runtimeconfig.json"     "$root\dist\Controller"
-Copy-BinFile "$controllerOut\EnterpriseRemote.Controller.pdb"                    "$root\dist\Controller"
-Copy-BinFile "$controllerOut\FontAwesome.Sharp.dll"                              "$root\dist\Controller"
-if (Test-Path "$controllerOut\ReaLTaiizor.dll") {
-    Copy-BinFile "$controllerOut\ReaLTaiizor.dll"                                 "$root\dist\Controller"
-}
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            "$root\dist\Controller"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            "$root\dist\Controller"
-
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.exe"                 "$root\dist\HostService"
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.dll"                 "$root\dist\HostService"
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.deps.json"           "$root\dist\HostService"
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.runtimeconfig.json"  "$root\dist\HostService"
-Copy-BinFile "$hostServiceOut\EnterpriseRemote.Host.Service.pdb"                 "$root\dist\HostService"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            "$root\dist\HostService"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            "$root\dist\HostService"
-
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.exe"                 "$root\dist\UserAgent"
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.dll"                 "$root\dist\UserAgent"
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.deps.json"           "$root\dist\UserAgent"
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.runtimeconfig.json"  "$root\dist\UserAgent"
-Copy-BinFile "$hostAgentOut\EnterpriseRemote.Host.UserAgent.pdb"                 "$root\dist\UserAgent"
-Copy-BinFile "$hostAgentOut\FontAwesome.Sharp.dll"                               "$root\dist\UserAgent"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.dll"                            "$root\dist\UserAgent"
-Copy-BinFile "$commonOut\EnterpriseRemote.Common.pdb"                            "$root\dist\UserAgent"
-
-Write-Host "`n[DONE] All binaries are 100% updated and synchronized across all folders."
+Write-Host "`n==============================================================================="
+Write-Host " [SUCCESS] All self-contained binaries & ZIP distributions updated 100%!"
+Write-Host "==============================================================================="

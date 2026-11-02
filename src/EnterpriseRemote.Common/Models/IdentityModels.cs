@@ -65,6 +65,11 @@ public sealed class EnrolledDevice
     public DateTime LastHeartbeatUtc { get; set; }
     public DeviceStatus Status { get; set; } = DeviceStatus.Offline;
     public string? PermanentAccessToken { get; set; }
+    /// <summary>
+    /// 4-digit short PIN assigned at enrollment for fast attended re-connection.
+    /// Null when the device was enrolled via full invitation code only.
+    /// </summary>
+    public string? ShortPin { get; set; }
 }
 
 public sealed class EnrollmentInvitation
@@ -79,6 +84,11 @@ public sealed class EnrollmentInvitation
     public bool IsRedeemed { get; set; }
     public string? RedeemedByDeviceId { get; set; }
     public bool AttendedRequired { get; set; } = true;
+    /// <summary>
+    /// Optional 4-digit numeric short PIN stored as plaintext for display/lookup.
+    /// Used so operators can verbally share a PIN rather than the full token.
+    /// </summary>
+    public string? ShortPin { get; set; }
 }
 
 public sealed class PolicyRule

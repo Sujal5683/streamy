@@ -17,6 +17,17 @@ public static class CryptoUtils
     }
 
     /// <summary>
+    /// Generates a cryptographically secure 4-digit numeric short PIN (0000–9999),
+    /// suitable for quick attended enrollment without needing to type the full invitation code.
+    /// </summary>
+    public static string GenerateShortPin()
+    {
+        byte[] bytes = RandomNumberGenerator.GetBytes(2);
+        int num = BitConverter.ToUInt16(bytes, 0) % 10000;
+        return num.ToString("D4");
+    }
+
+    /// <summary>
     /// Computes the SHA-256 hash of a string, returning a lower-case hexadecimal digest.
     /// </summary>
     public static string ComputeSha256(string input)

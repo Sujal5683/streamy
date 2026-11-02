@@ -74,6 +74,62 @@ public static class PixelConverter
         }
     }
 
+    /// <summary>
+    /// Downscales a BGRA32 source buffer to a smaller destination buffer using box-filter averaging.
+    /// Each destination pixel is the average of the corresponding (scaleX × scaleY) source pixels.
+    /// The scale factors are computed from (srcW/dstW) and (srcH/dstH); they must be integer multiples.
+    /// All four BGRA channels are averaged independently.
+    /// </summary>
+    /// <param name="src">Source pixel data in BGRA32 format (4 bytes per pixel).</param>
+    /// <param name="srcW">Width of the source image in pixels.</param>
+    /// <param name="srcH">Height of the source image in pixels.</param>
+    /// <param name="dst">Destination pixel data buffer (must be at least dstW * dstH * 4 bytes).</param>
+    /// <param name="dstW">Width of the destination image in pixels.</param>
+    /// <param name="dstH">Height of the destination image in pixels.</param>
+    public static void FastBoxDownscaleBgra32(byte[] src, int srcW, int srcH, byte[] dst, int dstW, int dstH)
+    {
+        if (src == null) throw new ArgumentNullException(nameof(src));
+        if (dst == null) throw new ArgumentNullException(nameof(dst));
+        if (dstW <= 0 || dstH <= 0) throw new ArgumentOutOfRangeException(nameof(dstW), "Destination dimensions must be positive.");
+        if (dst.Length < dstW * dstH * 4) throw new ArgumentException("Destination buffer is too small.", nameof(dst));
+
+        int scaleX = srcW / dstW;
+        int scaleY = srcH / dstH;
+        if (scaleX < 1) scaleX = 1;
+        if (scaleY < 1) scaleY = 1;
+        int boxArea = scaleX * scaleY;
+
+        // Use a regular nested loop — no unsafe/fixed needed for managed arrays
+        for (int dy = 0; dy < dstH; dy++)
+        {
+            int srcBaseY = dy * scaleY;
+            for (int dx = 0; dx < dstW; dx++)
+            {
+                int sumB = 0, sumG = 0, sumR = 0, sumA = 0;
+                int srcBaseX = dx * scaleX;
+
+                for (int sy = 0; sy < scaleY; sy++)
+                {
+                    int rowOffset = (srcBaseY + sy) * srcW * 4;
+                    for (int sx = 0; sx < scaleX; sx++)
+                    {
+                        int idx = rowOffset + (srcBaseX + sx) * 4;
+                        sumB += src[idx + 0];
+                        sumG += src[idx + 1];
+                        sumR += src[idx + 2];
+                        sumA += src[idx + 3];
+                    }
+                }
+
+                int dstIdx = (dy * dstW + dx) * 4;
+                dst[dstIdx + 0] = (byte)(sumB / boxArea);
+                dst[dstIdx + 1] = (byte)(sumG / boxArea);
+                dst[dstIdx + 2] = (byte)(sumR / boxArea);
+                dst[dstIdx + 3] = (byte)(sumA / boxArea);
+            }
+        }
+    }
+
     private static byte RgbToY(int r, int g, int b)
     {
         int y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;

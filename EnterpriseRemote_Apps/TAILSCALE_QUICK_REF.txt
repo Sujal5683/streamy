@@ -1,0 +1,75 @@
+================================================================================
+  ENTERPRISE REMOTE ACCESS — TAILSCALE QUICK REFERENCE CARD
+================================================================================
+
+  WHAT IS TAILSCALE MODE?
+  ────────────────────────
+  Tailscale wraps your connection in WireGuard UDP — a direct peer-to-peer
+  encrypted tunnel between your two PCs that travels over any internet connection.
+
+  vs Cloudflare Tunnel (current):   TCP relay → US/EU PoP → adds 50–200ms
+  vs Tailscale (this):              UDP direct P2P        → near-LAN latency
+
+  Free plan: 3 users, 100 devices, unlimited bandwidth — forever.
+
+================================================================================
+
+  MAIN PC SETUP (do once)
+  ───────────────────────
+  1. Download & install Tailscale: https://tailscale.com/download
+  2. Sign in (Google / Microsoft / GitHub account — free)
+  3. Double-click: START_TAILSCALE_MODE.bat  (or .vbs for no console)
+  4. Note your Tailscale IP shown on screen (e.g. 100.x.x.x)
+     → It is automatically copied to your clipboard!
+
+================================================================================
+
+  REMOTE PC SETUP (do once)
+  ──────────────────────────
+  1. Download & install Tailscale on Remote PC (same or shared account)
+  2. Double-click: SETUP_TAILSCALE_REMOTE.bat  (confirms connectivity)
+  3. Double-click: 1_CLICK_ENROLL_REMOTE_PC.bat
+     When asked for the server URL, enter:
+       http://100.x.x.x:5293
+       (replace 100.x.x.x with the Main PC Tailscale IP from above)
+  4. Done — streaming starts immediately with near-LAN latency!
+
+================================================================================
+
+  DAILY USE (after setup)
+  ────────────────────────
+  Main PC:   START_MAIN_PC.vbs  (Tailscale runs automatically in background)
+  Remote PC: START_REMOTE_STREAMING.vbs
+
+  No tunnel window needed! Tailscale is a background service — always on.
+
+================================================================================
+
+  TROUBLESHOOTING
+  ───────────────
+  "Cannot connect to 100.x.x.x:5293"
+    → Make sure Tailscale shows "Connected" in both PCs' System Tray
+    → Both PCs must be on the same Tailscale account (or use "Share node")
+    → Run ALLOW_FIREWALL_PORT_5293.bat on Main PC (one-time)
+
+  "Tailscale IP changed"
+    → Tailscale IPs are permanent — they do NOT change unless you reinstall
+
+  "Want to use Cloudflare instead?"
+    → Use START_PUBLIC_INTERNET_TUNNEL.bat as always — no conflict
+
+================================================================================
+
+  COMPARISON: TAILSCALE vs CLOUDFLARE QUICK TUNNEL
+  ──────────────────────────────────────────────────
+  Feature            Cloudflare Quick Tunnel    Tailscale (WireGuard)
+  ─────────────────  ─────────────────────────  ─────────────────────
+  Protocol           TCP (relay)                UDP (direct P2P)
+  Extra RTT added    50–200ms                   <5ms
+  Bandwidth limit    Yes (throttled)            None
+  URL stability      New URL every restart      Permanent 100.x.x.x
+  Needs account?     No                         Yes (free)
+  Setup required     None                       Install on both PCs
+  Best for           Quick, no-account access   Daily use, best quality
+
+================================================================================

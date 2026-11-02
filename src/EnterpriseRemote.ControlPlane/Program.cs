@@ -31,7 +31,28 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
 var app = builder.Build();
+app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
+        ctx.Context.Response.Headers.Append("Pragma", "no-cache");
+        ctx.Context.Response.Headers.Append("Expires", "0");
+    }
+});
 app.UseWebSockets();
 
 // Seed initial default organization and admin user for instant testing
@@ -459,6 +480,8 @@ app.Map("/api/v1/stream/viewer", async (HttpContext ctx) =>
     }
 });
 
+app.MapFallbackToFile("index.html");
+
 app.Run();
 
 // DTO Records
@@ -480,3 +503,5 @@ public record SessionResponseDto(
     string ControlPlanePublicKeyPem);
 
 public partial class Program { }
+
+

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 
 namespace EnterpriseRemote.Common.Protocol;
 
@@ -13,7 +14,13 @@ public enum InputEventType : byte
     KeyUp = 0x11,
     StreamConfig = 0x35,
     LatencyPing = 0x40,
-    LatencyPong = 0x41
+    LatencyPong = 0x41,
+    /// <summary>Requests the host to switch to a named Win32 desktop.</summary>
+    SwitchDesktop = 0x50,
+    /// <summary>Host-to-controller notification of available desktops and displays.</summary>
+    DesktopListUpdate = 0x51,
+    /// <summary>Host-to-controller notification of the current remote cursor shape.</summary>
+    CursorUpdate = 0x52
 }
 
 public enum MouseButton : byte
@@ -34,6 +41,25 @@ public enum ModifierKeys : byte
     Alt = 2,
     Shift = 4,
     Windows = 8
+}
+
+/// <summary>Standard cursor shapes that can be remoted to the controller side.</summary>
+public enum RemoteCursorShape : byte
+{
+    Default = 0,
+    Hand = 1,
+    IBeam = 2,
+    SizeAll = 3,
+    SizeWE = 4,
+    SizeNS = 5,
+    Wait = 6,
+    Cross = 7,
+    No = 8,
+    SizeNWSE = 9,
+    SizeNESW = 10,
+    UpArrow = 11,
+    AppStarting = 12,
+    Help = 13
 }
 
 public readonly record struct MouseInputPacket(
@@ -82,6 +108,36 @@ public readonly record struct TelemetryMetricsPacket(
     float PacketLossPercentage,
     float FramesPerSecond,
     uint CurrentBitrateKbps,
+    ulong TimestampMillis);
+
+/// <summary>
+/// Request from controller to host to switch to a named Win32 desktop and/or physical display.
+/// Wire: [0x50][DisplayIndex:1][AutoFollow:1][NameLen:2LE][Name:UTF8][Timestamp:8LE]
+/// </summary>
+public readonly record struct SwitchDesktopPacket(
+    byte DisplayIndex,
+    bool AutoFollow,
+    string DesktopName,
+    ulong TimestampMillis);
+
+/// <summary>
+/// Describes one physical display/monitor available on the host.
+/// </summary>
+public readonly record struct DisplaySummary(
+    byte Index,
+    string Name,
+    int Width,
+    int Height,
+    bool IsPrimary);
+
+/// <summary>
+/// Host-to-controller notification listing available Win32 desktops and physical displays.
+/// Wire: [0x51][ActiveNameLen:2LE][ActiveName:UTF8][DesktopCount:1][...names...][DisplayCount:1][...displays...][Timestamp:8LE]
+/// </summary>
+public readonly record struct DesktopListPacket(
+    string ActiveDesktop,
+    string[] Desktops,
+    DisplaySummary[] Displays,
     ulong TimestampMillis);
 
 public static class DataChannelProtocol
@@ -243,5 +299,180 @@ public static class DataChannelProtocol
         timestampMillis = BitConverter.ToUInt64(data.Slice(1, 8));
         return true;
     }
-}
 
+    // ─── SwitchDesktop packet ────────────────────────────────────────────────────
+    // Wire layout: [0x50:1][DisplayIndex:1][AutoFollow:1][NameLen:2LE][Name:UTF8][Timestamp:8LE]
+    // Minimum length without name: 1+1+1+2+8 = 13 bytes
+
+    /// <summary>Serializes a <see cref="SwitchDesktopPacket"/> into the wire format.</summary>
+    public static byte[] SerializeSwitchDesktop(in SwitchDesktopPacket packet)
+    {
+        byte[] nameBytes = Encoding.UTF8.GetBytes(packet.DesktopName ?? string.Empty);
+        int totalLen = 1 + 1 + 1 + 2 + nameBytes.Length + 8;
+        byte[] buffer = new byte[totalLen];
+        int pos = 0;
+        buffer[pos++] = (byte)InputEventType.SwitchDesktop;
+        buffer[pos++] = packet.DisplayIndex;
+        buffer[pos++] = packet.AutoFollow ? (byte)1 : (byte)0;
+        BitConverter.TryWriteBytes(buffer.AsSpan(pos, 2), (ushort)nameBytes.Length);
+        pos += 2;
+        nameBytes.CopyTo(buffer, pos);
+        pos += nameBytes.Length;
+        BitConverter.TryWriteBytes(buffer.AsSpan(pos, 8), packet.TimestampMillis);
+        return buffer;
+    }
+
+    /// <summary>Tries to deserialize a <see cref="SwitchDesktopPacket"/> from raw bytes.</summary>
+    public static bool TryDeserializeSwitchDesktop(ReadOnlySpan<byte> data, out SwitchDesktopPacket packet)
+    {
+        // Minimum: type(1) + displayIndex(1) + autoFollow(1) + nameLen(2) + timestamp(8) = 13
+        if (data.Length < 13 || data[0] != (byte)InputEventType.SwitchDesktop)
+        {
+            packet = default;
+            return false;
+        }
+
+        byte displayIndex = data[1];
+        bool autoFollow = data[2] != 0;
+        ushort nameLen = BitConverter.ToUInt16(data.Slice(3, 2));
+        int nameStart = 5;
+
+        if (data.Length < nameStart + nameLen + 8)
+        {
+            packet = default;
+            return false;
+        }
+
+        string desktopName = nameLen > 0
+            ? Encoding.UTF8.GetString(data.Slice(nameStart, nameLen))
+            : string.Empty;
+        ulong ts = BitConverter.ToUInt64(data.Slice(nameStart + nameLen, 8));
+
+        packet = new SwitchDesktopPacket(displayIndex, autoFollow, desktopName, ts);
+        return true;
+    }
+
+    // ─── DesktopList packet ──────────────────────────────────────────────────────
+    // Wire layout:
+    //   [0x51:1]
+    //   [ActiveNameLen:2LE][ActiveName:UTF8]
+    //   [DesktopCount:1]  → for each: [NameLen:2LE][Name:UTF8]
+    //   [DisplayCount:1]  → for each: [Index:1][NameLen:2LE][Name:UTF8][Width:4LE][Height:4LE][IsPrimary:1]
+    //   [Timestamp:8LE]
+
+    /// <summary>Serializes a <see cref="DesktopListPacket"/> into the wire format.</summary>
+    public static byte[] SerializeDesktopList(in DesktopListPacket packet)
+    {
+        using var ms = new MemoryStream(256);
+        using var bw = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
+
+        bw.Write((byte)InputEventType.DesktopListUpdate);
+
+        byte[] activeBytes = Encoding.UTF8.GetBytes(packet.ActiveDesktop ?? string.Empty);
+        bw.Write((ushort)activeBytes.Length);
+        bw.Write(activeBytes);
+
+        bw.Write((byte)(packet.Desktops?.Length ?? 0));
+        if (packet.Desktops != null)
+        {
+            foreach (var name in packet.Desktops)
+            {
+                byte[] nb = Encoding.UTF8.GetBytes(name ?? string.Empty);
+                bw.Write((ushort)nb.Length);
+                bw.Write(nb);
+            }
+        }
+
+        bw.Write((byte)(packet.Displays?.Length ?? 0));
+        if (packet.Displays != null)
+        {
+            foreach (var d in packet.Displays)
+            {
+                bw.Write(d.Index);
+                byte[] nb = Encoding.UTF8.GetBytes(d.Name ?? string.Empty);
+                bw.Write((ushort)nb.Length);
+                bw.Write(nb);
+                bw.Write(d.Width);
+                bw.Write(d.Height);
+                bw.Write(d.IsPrimary ? (byte)1 : (byte)0);
+            }
+        }
+
+        bw.Write(packet.TimestampMillis);
+        bw.Flush();
+        return ms.ToArray();
+    }
+
+    /// <summary>Tries to deserialize a <see cref="DesktopListPacket"/> from raw bytes.</summary>
+    public static bool TryDeserializeDesktopList(ReadOnlySpan<byte> data, out DesktopListPacket packet)
+    {
+        packet = default;
+        if (data.Length < 1 || data[0] != (byte)InputEventType.DesktopListUpdate)
+            return false;
+
+        try
+        {
+            // Use a MemoryStream/BinaryReader on a copy to handle variable-length data safely
+            byte[] copy = data.ToArray();
+            using var ms = new MemoryStream(copy);
+            using var br = new BinaryReader(ms, Encoding.UTF8, leaveOpen: false);
+
+            br.ReadByte(); // type byte already validated
+
+            ushort activeLen = br.ReadUInt16();
+            string activeDesktop = activeLen > 0 ? Encoding.UTF8.GetString(br.ReadBytes(activeLen)) : string.Empty;
+
+            byte desktopCount = br.ReadByte();
+            string[] desktops = new string[desktopCount];
+            for (int i = 0; i < desktopCount; i++)
+            {
+                ushort nl = br.ReadUInt16();
+                desktops[i] = nl > 0 ? Encoding.UTF8.GetString(br.ReadBytes(nl)) : string.Empty;
+            }
+
+            byte displayCount = br.ReadByte();
+            var displays = new DisplaySummary[displayCount];
+            for (int i = 0; i < displayCount; i++)
+            {
+                byte idx = br.ReadByte();
+                ushort nl = br.ReadUInt16();
+                string name = nl > 0 ? Encoding.UTF8.GetString(br.ReadBytes(nl)) : string.Empty;
+                int width = br.ReadInt32();
+                int height = br.ReadInt32();
+                bool isPrimary = br.ReadByte() != 0;
+                displays[i] = new DisplaySummary(idx, name, width, height, isPrimary);
+            }
+
+            ulong ts = br.ReadUInt64();
+            packet = new DesktopListPacket(activeDesktop, desktops, displays, ts);
+            return true;
+        }
+        catch
+        {
+            packet = default;
+            return false;
+        }
+    }
+
+    // ─── CursorUpdate packet ─────────────────────────────────────────────────────
+    // Wire layout: [0x52:1][CursorShape:1]  →  exactly 2 bytes
+
+    /// <summary>Serializes a cursor shape update into a 2-byte wire packet.</summary>
+    public static byte[] SerializeCursorUpdate(RemoteCursorShape shape)
+    {
+        return new byte[] { (byte)InputEventType.CursorUpdate, (byte)shape };
+    }
+
+    /// <summary>Tries to deserialize a cursor shape update from raw bytes.</summary>
+    public static bool TryDeserializeCursorUpdate(ReadOnlySpan<byte> data, out RemoteCursorShape shape)
+    {
+        if (data.Length < 2 || data[0] != (byte)InputEventType.CursorUpdate)
+        {
+            shape = default;
+            return false;
+        }
+
+        shape = (RemoteCursorShape)data[1];
+        return true;
+    }
+}

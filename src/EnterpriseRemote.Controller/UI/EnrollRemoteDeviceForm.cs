@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -10,6 +10,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using EnterpriseRemote.Controller.UI.Components;
@@ -473,10 +474,9 @@ public sealed class EnrollRemoteDeviceForm : Form
     {
         try
         {
-            string lanIp = GetLocalLanIp();
             string? tunnelUrl = TryReadPublicTunnelUrl();
 
-            // 1. If user passed a public / remote server URL into this dialog, respect it
+            // 1. If user passed a non-local server URL into this dialog, respect it
             if (!string.IsNullOrWhiteSpace(_serverUrl) &&
                 !_serverUrl.Contains("127.0.0.1") &&
                 !_serverUrl.Contains("localhost"))
@@ -496,16 +496,33 @@ public sealed class EnrollRemoteDeviceForm : Form
                 return;
             }
 
-            // 3. Fallback to local LAN IP for same Wi-Fi connectivity
+            // 3. Use NetworkDiscoveryHelper for reliable Wi-Fi/LAN adapter detection
             int port = 5293;
             if (Uri.TryCreate(_serverUrl, UriKind.Absolute, out var uri) && uri.Port > 0)
             {
                 port = uri.Port;
             }
 
-            _badgeLanIp.Text = $"Detected LAN IP: {lanIp} (For same Wi-Fi. For outside, click 'Internet Tunnel')";
-            _badgeLanIp.Status = CyberBadgeStatus.Cyan;
-            _txtServerUrl.Text = $"http://{lanIp}:{port}";
+            var adapters = NetworkDiscoveryHelper.GetActiveLanAdapters();
+            // Prefer Wi-Fi with gateway, then Ethernet with gateway, then anything
+            LanAdapterInfo? bestNullable = adapters.Cast<LanAdapterInfo?>()
+                .FirstOrDefault(a => a!.Value.IsWireless && a!.Value.HasGateway)
+                ?? adapters.Cast<LanAdapterInfo?>().FirstOrDefault(a => a!.Value.HasGateway)
+                ?? adapters.Cast<LanAdapterInfo?>().FirstOrDefault();
+            var best = bestNullable ?? default;
+
+            if (bestNullable.HasValue && best.IpAddress != null && best.IpAddress != "127.0.0.1")
+            {
+                string adapterLabel = best.IsWireless ? "Wi-Fi" : "Ethernet";
+                _badgeLanIp.Text = $"Detected {adapterLabel} IP: {best.IpAddress}  ({best.Name})  — For same network. For Internet, click 'Internet Tunnel'";
+                _badgeLanIp.Status = CyberBadgeStatus.Cyan;
+                _txtServerUrl.Text = $"http://{best.IpAddress}:{port}";
+            }
+            else
+            {
+                _badgeLanIp.Text = "Could not detect LAN IP. Enter gateway address manually or click 'Internet Tunnel'.";
+                _badgeLanIp.Status = CyberBadgeStatus.Warning;
+            }
         }
         catch
         {

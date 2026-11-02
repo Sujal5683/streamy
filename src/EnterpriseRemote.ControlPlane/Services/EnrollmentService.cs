@@ -34,6 +34,7 @@ public sealed class EnrollmentService
     {
         string rawCode = CryptoUtils.GenerateInvitationCode();
         string tokenHash = CryptoUtils.ComputeSha256(rawCode);
+        string shortPin = CryptoUtils.GenerateShortPin();
 
         var now = DateTime.UtcNow;
         var invitation = new EnrollmentInvitation
@@ -46,7 +47,8 @@ public sealed class EnrollmentService
             CreatedAtUtc = now,
             ExpiresAtUtc = now.AddMinutes(ttlMinutes),
             IsRedeemed = false,
-            AttendedRequired = attendedRequired
+            AttendedRequired = attendedRequired,
+            ShortPin = shortPin
         };
 
         _store.SaveInvitation(invitation);
@@ -85,9 +87,28 @@ public sealed class EnrollmentService
             return new EnrollmentRedemptionResult(false, null, null, "Invalid device cryptographic public key.");
         }
 
-        // 3. Hash Invitation Token and Check Expiry / Redemption
-        string tokenHash = CryptoUtils.ComputeSha256(invitationCode.Trim());
-        var invitation = _store.FindInvitationByHash(tokenHash);
+        // 3. Resolve invitation — try full code hash first, then short PIN fallback
+        string trimmedCode = invitationCode.Trim();
+        EnrollmentInvitation? invitation = null;
+        bool redeemedByShortPin = false;
+
+        // Attempt 1: standard full-token hash lookup
+        string tokenHash = CryptoUtils.ComputeSha256(trimmedCode);
+        invitation = _store.FindInvitationByHash(tokenHash);
+
+        // Attempt 2: short PIN direct lookup (4-digit code)
+        if (invitation == null && trimmedCode.Length == 4 && int.TryParse(trimmedCode, out _))
+        {
+            invitation = _store.FindInvitationByShortPin(trimmedCode);
+            if (invitation != null)
+            {
+                redeemedByShortPin = true;
+                // Use ShortPin as the effective token hash for redemption
+                tokenHash = CryptoUtils.ComputeSha256(trimmedCode);
+                // The store key for TryRedeemInvitation is the invitation's TokenHash
+                tokenHash = invitation.TokenHash;
+            }
+        }
 
         if (invitation == null)
         {
@@ -109,7 +130,12 @@ public sealed class EnrollmentService
 
         // 4. Generate Unique Device ID & Cryptographic Registration with Permanent Access Token
         string deviceId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
-        string permToken = $"PERM-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}";
+
+        // When redeemed by ShortPin the permanent token IS the ShortPin (easy to type for attended sessions)
+        string permToken = redeemedByShortPin
+            ? invitation.ShortPin!
+            : $"PERM-{Guid.NewGuid().ToString("N")[..12].ToUpperInvariant()}";
+
         bool redeemed = _store.TryRedeemInvitation(tokenHash, deviceId);
         if (!redeemed)
         {
@@ -128,7 +154,8 @@ public sealed class EnrollmentService
             EnrolledAtUtc = DateTime.UtcNow,
             LastHeartbeatUtc = DateTime.UtcNow,
             Status = DeviceStatus.Online,
-            PermanentAccessToken = permToken
+            PermanentAccessToken = permToken,
+            ShortPin = invitation.ShortPin
         };
 
         _store.SaveDevice(device);

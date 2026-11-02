@@ -18,6 +18,11 @@ public interface IControlPlaneStore
     
     void SaveInvitation(EnrollmentInvitation invitation);
     EnrollmentInvitation? FindInvitationByHash(string tokenHash);
+    /// <summary>
+    /// Finds an invitation by its plaintext 4-digit short PIN.
+    /// Returns null if not found or the PIN is not associated with any invitation.
+    /// </summary>
+    EnrollmentInvitation? FindInvitationByShortPin(string shortPin);
     bool TryRedeemInvitation(string tokenHash, string deviceId);
 
     void SavePolicy(PolicyRule policy);
@@ -248,7 +253,18 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
 
     public EnrollmentInvitation? FindInvitationByHash(string tokenHash)
     {
-        return _invitations.Values.FirstOrDefault(i => i.TokenHash.Equals(tokenHash, StringComparison.OrdinalIgnoreCase));
+        // Also match by ShortPin so callers can pass a PIN directly
+        return _invitations.Values.FirstOrDefault(i =>
+            i.TokenHash.Equals(tokenHash, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrEmpty(i.ShortPin) && i.ShortPin.Equals(tokenHash, StringComparison.Ordinal)));
+    }
+
+    public EnrollmentInvitation? FindInvitationByShortPin(string shortPin)
+    {
+        if (string.IsNullOrEmpty(shortPin)) return null;
+        return _invitations.Values.FirstOrDefault(i =>
+            !string.IsNullOrEmpty(i.ShortPin) &&
+            i.ShortPin.Equals(shortPin, StringComparison.Ordinal));
     }
 
     public bool TryRedeemInvitation(string tokenHash, string deviceId)

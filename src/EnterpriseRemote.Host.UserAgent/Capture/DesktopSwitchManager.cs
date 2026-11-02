@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Windows.Forms;
+using EnterpriseRemote.Common.Protocol;
 
 namespace EnterpriseRemote.Host.UserAgent.Capture;
 
@@ -120,6 +123,20 @@ public sealed class DesktopSwitchManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Attaches the calling thread to the active input desktop, updating <paramref name="currentDesktopName"/>
+    /// if the active desktop differs from it.
+    /// Returns true when a switch was performed (i.e., the desktop changed).
+    /// </summary>
+    public static bool SyncCallingThreadToInputDesktop(ref string currentDesktopName, out string activeName)
+    {
+        bool switched = AttachCallingThreadToInputDesktop(out activeName);
+        if (string.IsNullOrEmpty(activeName))
+            activeName = "Default";
+        currentDesktopName = activeName;
+        return switched;
+    }
+
     public static bool AttachThreadToDesktop(IntPtr hDesktop)
     {
         if (hDesktop == IntPtr.Zero) return false;
@@ -182,6 +199,69 @@ public sealed class DesktopSwitchManager : IDisposable
         return string.Empty;
     }
 
+    /// <summary>
+    /// Returns the names of all Win32 desktops visible in the current window station (WinSta0).
+    /// Always includes "Default". Safe to call from any thread.
+    /// </summary>
+    public static string[] GetAvailableDesktops()
+    {
+        var names = new List<string>();
+
+        try
+        {
+            EnumDesktopsDelegate callback = (name, _) =>
+            {
+                if (!string.IsNullOrEmpty(name))
+                    names.Add(name);
+                return true;
+            };
+
+            IntPtr hWinSta = OpenWindowStation("WinSta0", false, WINSTA_ENUMERATE | WINSTA_ENUMDESKTOPS);
+            if (hWinSta != IntPtr.Zero)
+            {
+                try
+                {
+                    EnumDesktops(hWinSta, callback, IntPtr.Zero);
+                }
+                finally
+                {
+                    CloseWindowStation(hWinSta);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"GetAvailableDesktops notice: {ex.Message}");
+        }
+
+        // Always guarantee at least "Default"
+        if (names.Count == 0)
+            names.Add("Default");
+
+        return names.ToArray();
+    }
+
+    /// <summary>
+    /// Returns a <see cref="DisplaySummary"/> for every physical monitor attached to the system.
+    /// Uses <see cref="Screen.AllScreens"/> which wraps the Win32 EnumDisplayMonitors API.
+    /// </summary>
+    public static DisplaySummary[] GetPhysicalDisplays()
+    {
+        var screens = Screen.AllScreens;
+        var result = new DisplaySummary[screens.Length];
+        for (int i = 0; i < screens.Length; i++)
+        {
+            var s = screens[i];
+            result[i] = new DisplaySummary(
+                Index: (byte)i,
+                Name: s.DeviceName ?? $"\\\\.\\DISPLAY{i + 1}",
+                Width: s.Bounds.Width,
+                Height: s.Bounds.Height,
+                IsPrimary: s.Primary);
+        }
+        return result;
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
@@ -190,6 +270,8 @@ public sealed class DesktopSwitchManager : IDisposable
     }
 
     #region Win32 P/Invoke
+    private delegate bool EnumDesktopsDelegate(string lpszDesktop, IntPtr lParam);
+
     private const uint UOI_NAME = 2;
     private const uint DESKTOP_READOBJECTS = 0x0001;
     private const uint DESKTOP_CREATEWINDOW = 0x0002;
@@ -204,6 +286,8 @@ public sealed class DesktopSwitchManager : IDisposable
     private const uint GENERIC_READ = 0x80000000;
     private const uint GENERIC_EXECUTE = 0x20000000;
     private const uint WINSTA_ALL_ACCESS = 0x037F;
+    private const uint WINSTA_ENUMERATE = 0x0100;
+    private const uint WINSTA_ENUMDESKTOPS = 0x0001;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenWindowStation(string lpszWinSta, bool fInherit, uint dwDesiredAccess);
@@ -225,5 +309,8 @@ public sealed class DesktopSwitchManager : IDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetUserObjectInformation(IntPtr hObj, uint nIndex, IntPtr pvInfo, uint nLength, out uint lpnLengthNeeded);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool EnumDesktops(IntPtr hwinsta, EnumDesktopsDelegate lpEnumFunc, IntPtr lParam);
     #endregion
 }

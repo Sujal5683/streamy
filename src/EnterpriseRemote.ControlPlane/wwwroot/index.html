@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Enterprise Remote Desktop Web Controller — Ultra-low latency zero-install browser streaming client for Chrome, Microsoft Edge, and Native Desktop.">
+    <title>Enterprise Remote Access — Zero-Install Web Controller</title>
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300e5ff'><path d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z'/></svg>">
+    <link rel="stylesheet" href="css/app.css?v=20261102_v4">
+    <script>
+        if (window.location.protocol === 'file:') {
+            document.addEventListener('DOMContentLoaded', function() {
+                var overlay = document.createElement('div');
+                overlay.style = 'position:fixed;inset:0;background:#0B0F19;color:#e2e8f0;z-index:9999999;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Segoe UI,system-ui,sans-serif;padding:32px;text-align:center;';
+                overlay.innerHTML = '<div style="background:#131B2E;border:1px solid #1E293B;border-radius:12px;padding:36px 40px;max-width:580px;box-shadow:0 20px 40px rgba(0,0,0,0.7);">' +
+                    '<div style="font-size:44px;margin-bottom:16px;">🌐</div>' +
+                    '<h2 style="color:#06b6d4;font-size:22px;margin:0 0 12px 0;letter-spacing:0.5px;">Browser Web Controller Notice</h2>' +
+                    '<p style="color:#94a3b8;font-size:14px;line-height:1.6;margin:0 0 24px 0;">Modern browsers require an active HTTP/HTTPS origin to run real-time streaming modules and WebSocket connections.<br><br>' +
+                    'Please launch via <b>OPEN_WEB_CONTROLLER.bat</b> or open <b>START_MAIN_PC.bat</b> in the <code>1_MAIN_PC_CONTROLLER</code> folder, then access via your browser:</p>' +
+                    '<div style="display:flex;gap:12px;justify-content:center;">' +
+                    '<a href="http://127.0.0.1:5293" style="background:#06b6d4;color:#050811;padding:12px 24px;border-radius:8px;font-weight:700;text-decoration:none;font-size:14px;display:inline-block;">Open http://127.0.0.1:5293</a>' +
+                    '</div>' +
+                    '</div>';
+                document.body.appendChild(overlay);
+            });
+        }
+    </script>
+</head>
+<body>
+    <div id="app-container">
+        <!-- Top App Navigation Bar -->
+        <header id="main-header" class="cyber-header">
+            <div class="brand-section">
+                <!-- Collapsible Sidebar Toggle Button -->
+                <button id="btn-toggle-sidebar" class="sidebar-toggle-btn" title="Toggle Control Sidebar (Ctrl+B)" aria-label="Toggle Sidebar">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                    </svg>
+                </button>
+                <div class="brand-logo-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v6h-2V7zm0 8h2v2h-2v-2z"/>
+                    </svg>
+                </div>
+                <div class="brand-titles">
+                    <span class="brand-title">ENTERPRISE REMOTE</span>
+                </div>
+            </div>
+
+            <!-- Center Routing & Target Status Info -->
+            <div class="header-center-info">
+                <!-- Gateway / Connection Type Chip -->
+                <button id="btn-gateway-chip" class="gateway-chip" title="Active Gateway Routing — Click to change">
+                    <span class="chip-dot"></span>
+                    <span id="gateway-chip-text">Localhost:5293</span>
+                </button>
+
+                <!-- Connected Target Device Name Chip -->
+                <div id="header-target-chip" class="header-target-chip" title="Active Target Machine">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                    </svg>
+                    <span id="header-target-name">Target: None</span>
+                </div>
+
+                <!-- Connection State Badge (IDLE / ACTIVE) -->
+                <div id="status-badge" class="cyber-badge badge-idle" title="Session State">
+                    <span class="cyber-badge-dot"></span>
+                    <span id="status-text">IDLE</span>
+                </div>
+            </div>
+
+            <!-- Right Actions: Two Buttons ONLY (Connect & Disconnect) + Three-Dot Menu -->
+            <div class="header-controls">
+                <button id="btn-connect" class="cyber-btn cyber-btn-primary" title="Connect to Remote Machine">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    <span>Connect</span>
+                </button>
+                <button id="btn-disconnect" class="cyber-btn cyber-btn-danger" disabled title="Disconnect Remote Session">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 6h12v12H6z"/>
+                    </svg>
+                    <span>Disconnect</span>
+                </button>
+
+                <!-- Header Three-Dot Menu -->
+                <div class="dropdown-wrapper">
+                    <button id="btn-header-more" class="cyber-btn cyber-btn-outline icon-only-btn" title="More Options & Identity" aria-label="More Options">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                        </svg>
+                    </button>
+                    <div id="menu-header-more" class="dropdown-menu header-more-menu">
+                        <div class="dropdown-section-title">QUICK IDENTITY & TARGET</div>
+                        
+                        <div class="header-menu-field">
+                            <label for="select-user">Operator Identity:</label>
+                            <div class="cyber-custom-select" id="custom-user-select-box">
+                                <button type="button" class="cyber-select-trigger" id="btn-trigger-user" title="Switch Operator Identity">
+                                    <span id="label-trigger-user" class="trigger-label">👑 admin@corp.internal</span>
+                                    <span id="badge-trigger-user" class="trigger-badge">Admin</span>
+                                    <span class="trigger-chevron">▾</span>
+                                </button>
+                                <div class="cyber-select-menu" id="menu-custom-user">
+                                    <button type="button" class="dropdown-item active" data-email="admin@corp.internal">
+                                        <span>👑 admin@corp.internal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="admin">
+                                        <span>⚙️ admin</span>
+                                        <span class="dropdown-shortcut">System</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="sujal@corp.internal">
+                                        <span>⚡ sujal@corp.internal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="sujal">
+                                        <span>💻 sujal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="alice@corp.internal">
+                                        <span>🛡️ alice@corp.internal</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button type="button" class="dropdown-item" data-email="operator@corp.internal">
+                                        <span>👤 operator@corp.internal</span>
+                                        <span class="dropdown-shortcut">Operator</span>
+                                    </button>
+                                </div>
+                                <select id="select-user" class="cyber-select hidden-select" title="Switch Operator Account" tabindex="-1">
+                                    <option value="admin@corp.internal" selected>admin@corp.internal (Admin)</option>
+                                    <option value="admin">admin (System Admin)</option>
+                                    <option value="sujal@corp.internal">sujal@corp.internal (Admin)</option>
+                                    <option value="sujal">sujal (Admin)</option>
+                                    <option value="alice@corp.internal">alice@corp.internal (Admin)</option>
+                                    <option value="operator@corp.internal">operator@corp.internal (Operator)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="header-menu-field">
+                            <label for="select-device">Target Workstation:</label>
+                            <div class="cyber-custom-select" id="custom-device-select-box">
+                                <button type="button" class="cyber-select-trigger" id="btn-trigger-device" title="Select Target Workstation">
+                                    <span id="label-trigger-device" class="trigger-label">Target: Discovering...</span>
+                                    <span id="badge-trigger-device" class="trigger-badge">Checking</span>
+                                    <span class="trigger-chevron">▾</span>
+                                </button>
+                                <div class="cyber-select-menu" id="menu-custom-device">
+                                    <div class="dropdown-item-empty">Discovering enrolled devices...</div>
+                                </div>
+                                <select id="select-device" class="cyber-select hidden-select" title="Select Remote Machine" tabindex="-1">
+                                    <option value="">Discovering devices...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="header-menu-field">
+                            <label for="input-permanent-key">Quick PIN / Key:</label>
+                            <form class="pin-input-inline" autocomplete="off" onsubmit="return false;">
+                                <input type="text" name="username" autocomplete="username" style="display:none;" tabindex="-1" aria-hidden="true" />
+                                <input id="input-permanent-key" type="password" class="cyber-input key-input" placeholder="Auto / PIN" title="Enter 4-digit PIN or Permanent Token" autocomplete="current-password" aria-label="Quick PIN or Permanent Key" />
+                                <button id="btn-toggle-key-visibility" class="icon-toggle-btn" title="Toggle Key Visibility" type="button" aria-label="Toggle Key Visibility">
+                                    <svg id="eye-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
+                                    </svg>
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-section-title">ADMINISTRATION & AUDIT</div>
+                        
+                        <button id="btn-header-manage-keys" class="dropdown-item" type="button">
+                            <span>🔑 Permanent Master Keys (All Devices)</span>
+                        </button>
+                        <button id="btn-header-admin-dir" class="dropdown-item">
+                            <span>🛡️ Admin Accounts Directory</span>
+                        </button>
+                        <button id="btn-header-keypair" class="dropdown-item">
+                            <span>🔑 Generate Controller Keypair</span>
+                        </button>
+                        <button id="btn-header-audit" class="dropdown-item">
+                            <span>📜 View Zero-Trust Audit Trail</span>
+                        </button>
+                        <button id="btn-header-policy" class="dropdown-item">
+                            <span>⚙️ Global Security Policy</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Secondary Toolbar (Scaling, Controls, Telemetry) -->
+        <nav id="main-toolbar" class="cyber-toolbar">
+            <div class="toolbar-left">
+                <!-- Unified Viewport Scaling Mode Cycle Button -->
+                <button id="btn-scale-toggle" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="Viewport Display Mode: Fit / Stretch / 1:1 Native (Click to Cycle)" aria-label="Viewport Scale Mode">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M15 3l2.3 2.3-2.89 2.87 1.42 1.42L18.7 6.7 21 9V3h-6zM3 9l2.3-2.3 2.87 2.89 1.42-1.42L6.7 5.3 9 3H3v6zm6 12l-2.3-2.3 2.89-2.87-1.42-1.42L5.3 17.3 3 15v6h6zm12-6l-2.3 2.3-2.87-2.89-1.42 1.42 2.89 2.87L15 21h6v-6z"/>
+                    </svg>
+                    <span id="label-scale-mode" class="btn-text-responsive">Fit</span>
+                </button>
+
+                <!-- Hidden legacy pill buttons so any programmatic clicks continue working 100% -->
+                <div style="display:none;">
+                    <button id="btn-scale-fit"></button>
+                    <button id="btn-scale-stretch"></button>
+                    <button id="btn-scale-original"></button>
+                </div>
+
+                <!-- Input Control Switch -->
+                <button id="btn-toggle-input" class="cyber-btn cyber-btn-primary toolbar-compact-btn" title="Toggle Remote Mouse & Keyboard Control" aria-label="Toggle Input Control">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/>
+                    </svg>
+                    <span id="label-toggle-input" class="btn-text-responsive">Control: ON</span>
+                </button>
+
+                <!-- Screen / Monitor / Desktop Switcher -->
+                <div class="dropdown-wrapper">
+                    <button id="btn-screen-selector" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="Switch Screen / Desktop Session" aria-label="Switch Display or Desktop">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.11-.9-2-2-2H4c-1.11 0-2 .89-2 2v10c0 1.1.89 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
+                        </svg>
+                        <span id="label-screen-selector" class="btn-text-responsive">Auto ▾</span>
+                    </button>
+                    <div id="menu-screen-selector" class="dropdown-menu">
+                        <div class="dropdown-section-title">DISPLAYS</div>
+                        <button class="dropdown-item active" data-display="auto">
+                            <span>Auto (Primary Screen)</span>
+                            <span class="dropdown-shortcut">Default</span>
+                        </button>
+                        <button class="dropdown-item" data-display="0">
+                            <span>Display 1 (Primary)</span>
+                            <span class="dropdown-shortcut">1080p</span>
+                        </button>
+                        <button class="dropdown-item" data-display="1">
+                            <span>Display 2</span>
+                            <span class="dropdown-shortcut">Extended</span>
+                        </button>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-section-title">DESKTOP SESSIONS</div>
+                        <button class="dropdown-item" data-desktop="Default">
+                            <span>Default User Desktop</span>
+                            <span class="dropdown-shortcut">Active</span>
+                        </button>
+                        <button class="dropdown-item" data-desktop="Winlogon">
+                            <span>Winlogon / UAC Secure Screen</span>
+                            <span class="dropdown-shortcut">Lock</span>
+                        </button>
+                        <button class="dropdown-item" data-desktop="SafeExamBrowser">
+                            <span>Safe Exam Browser (SEB)</span>
+                            <span class="dropdown-shortcut">Isolated</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Actions Menu -->
+                <div class="dropdown-wrapper">
+                    <button id="btn-quick-actions" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="System Shortcuts & Key Injections" aria-label="System Shortcuts and Keys">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7 2v11h3v9l7-12h-4l4-8z"/>
+                        </svg>
+                        <span class="btn-text-responsive">Keys ▾</span>
+                    </button>
+                    <div id="menu-quick-actions" class="dropdown-menu">
+                        <button class="dropdown-item" data-action="ctrl-alt-del">
+                            <span>Ctrl + Alt + Del</span>
+                            <span class="dropdown-shortcut">Security</span>
+                        </button>
+                        <button class="dropdown-item" data-action="win-l">
+                            <span>Lock Workstation</span>
+                            <span class="dropdown-shortcut">Win + L</span>
+                        </button>
+                        <button class="dropdown-item" data-action="win-r">
+                            <span>Run Dialog</span>
+                            <span class="dropdown-shortcut">Win + R</span>
+                        </button>
+                        <button class="dropdown-item" data-action="taskmgr">
+                            <span>Task Manager</span>
+                            <span class="dropdown-shortcut">Ctrl+Shift+Esc</span>
+                        </button>
+                        <button class="dropdown-item" data-action="alt-tab">
+                            <span>Switch App</span>
+                            <span class="dropdown-shortcut">Alt + Tab</span>
+                        </button>
+                        <button class="dropdown-item" data-action="win">
+                            <span>Start Menu</span>
+                            <span class="dropdown-shortcut">Win Key</span>
+                        </button>
+                        <button class="dropdown-item" data-action="esc">
+                            <span>Escape</span>
+                            <span class="dropdown-shortcut">Esc</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quality Profiles (Compact Chips) -->
+                <div class="toolbar-pill compact-presets" title="Quality Profile: LAN (60 FPS) / WAN (40 FPS) / 4K Ultra">
+                    <button id="btn-profile-lan" class="toolbar-pill-btn" title="Direct LAN Profile (60 FPS, 1080p)">LAN</button>
+                    <button id="btn-profile-wan" class="toolbar-pill-btn active" title="Optimized WAN Profile (40 FPS, 720p)">WAN</button>
+                    <button id="btn-profile-sharp" class="toolbar-pill-btn" title="Ultra Sharp Profile (30 FPS, Original)">4K</button>
+                </div>
+
+                <!-- Custom Stream Config Popover -->
+                <div class="dropdown-wrapper">
+                    <button id="btn-config-popover" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="Fine-tune FPS & Quality" aria-label="Stream Tuning">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/>
+                        </svg>
+                        <span class="btn-text-responsive">Tuning ▾</span>
+                    </button>
+                    <div id="menu-config-popover" class="dropdown-menu">
+                        <div class="slider-row">
+                            <div class="slider-header">
+                                <label for="slider-fps">Target FPS:</label>
+                                <span id="val-slider-fps" class="slider-val-highlight">40</span>
+                            </div>
+                            <input id="slider-fps" type="range" class="cyber-range" min="15" max="60" step="5" value="40" title="Target Frame Rate (FPS)" aria-label="Target Frame Rate (FPS)">
+                        </div>
+                        <div class="slider-row">
+                            <div class="slider-header">
+                                <label for="slider-quality">JPEG Quality:</label>
+                                <span id="val-slider-quality" class="slider-val-highlight">50%</span>
+                            </div>
+                            <input id="slider-quality" type="range" class="cyber-range" min="30" max="95" step="5" value="50" title="JPEG Streaming Quality" aria-label="JPEG Streaming Quality">
+                        </div>
+                        <div class="slider-row">
+                            <div class="slider-header">
+                                <label for="select-max-height">Max Resolution:</label>
+                                <span id="val-slider-res-badge" class="slider-val-highlight">720p HD</span>
+                            </div>
+                            <div class="cyber-res-chips-row">
+                                <button type="button" id="btn-res-720" class="res-chip-btn active" data-res="720" title="720p High Frame Rate">⚡ 720p HD</button>
+                                <button type="button" id="btn-res-1080" class="res-chip-btn" data-res="1080" title="1080p Crisp Details">🖥️ 1080p</button>
+                                <button type="button" id="btn-res-native" class="res-chip-btn" data-res="0" title="Native Host Monitor Resolution">💎 Native</button>
+                            </div>
+                            <select id="select-max-height" class="cyber-select hidden-select" title="Max Streaming Resolution" aria-label="Max Streaming Resolution" tabindex="-1">
+                                <option value="720" selected>720p HD (Low Latency)</option>
+                                <option value="1080">1080p FHD (Crisp)</option>
+                                <option value="0">Native Resolution (Original)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-right">
+                <!-- Connections Hub Modal Trigger -->
+                <button id="btn-open-connections" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="View Enrolled PCs & Connection Hub">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M4 1v22h16V1H4zm14 20H6V3h12v18zM8 5h8v2H8zm0 4h8v2H8zm0 4h5v2H8z"/>
+                    </svg>
+                    <span class="btn-text-responsive">Hosts</span>
+                </button>
+
+                <!-- Settings Modal Trigger -->
+                <button id="btn-open-settings" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="Open Stream & System Settings">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                    </svg>
+                    <span class="btn-text-responsive">Settings</span>
+                </button>
+
+                <!-- Telemetry HUD (Always Visible, Compact Monospace) -->
+                <div class="telemetry-bar" title="Real-Time Streaming Diagnostics">
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">FPS:</span>
+                        <span id="telemetry-fps" class="telemetry-val">--</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">RTT:</span>
+                        <span id="telemetry-rtt" class="telemetry-val">-- ms</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">RATE:</span>
+                        <span id="telemetry-bitrate" class="telemetry-val">--</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">RES:</span>
+                        <span id="telemetry-res" class="telemetry-val">--×--</span>
+                    </div>
+                </div>
+
+                <!-- Fullscreen Toggle -->
+                <button id="btn-fullscreen" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="Toggle Fullscreen Mode (F11)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                    </svg>
+                    <span class="btn-text-responsive">Full</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- =========================================================================
+             MAIN WORKSPACE: Collapsible Left Sidebar + Viewport
+             ========================================================================= -->
+        <div id="main-workspace" class="main-workspace">
+            <!-- Outside Collapsible Control Sidebar -->
+            <aside id="side-panel" class="cyber-sidebar">
+                <div class="sidebar-inner">
+                    <!-- Sidebar Header / Collapse Handle -->
+                    <div class="sidebar-top-header">
+                        <div class="sidebar-top-title">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--primary-cyan)">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z"/>
+                            </svg>
+                            <span>OPERATOR CONSOLE</span>
+                        </div>
+                        <button id="btn-sidebar-collapse" class="card-icon-btn" title="Collapse Panel (Ctrl+B)">
+                            ◀
+                        </button>
+                    </div>
+
+                    <!-- CARD 1: GATEWAY & IDENTITY -->
+                    <div class="sidebar-card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--primary-cyan)">
+                                    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 6h2v6h-2V7zm0 8h2v2h-2v-2z"/>
+                                </svg>
+                                <span>GATEWAY & IDENTITY</span>
+                            </div>
+                            <div class="dropdown-wrapper">
+                                <button id="btn-sidebar-admin-menu" class="card-icon-btn" title="Quick Admin Accounts Directory">⋮</button>
+                                <div id="menu-sidebar-admin-accounts" class="dropdown-menu sidebar-admin-dropdown">
+                                    <div class="dropdown-section-title">ADMIN ACCOUNTS</div>
+                                    <button class="dropdown-item" data-email="admin@corp.internal">
+                                        <span>Security Admin</span>
+                                        <span class="dropdown-shortcut">Admin</span>
+                                    </button>
+                                    <button class="dropdown-item" data-email="admin">
+                                        <span>System Admin</span>
+                                        <span class="dropdown-shortcut">Local</span>
+                                    </button>
+                                    <button class="dropdown-item" data-email="sujal@corp.internal">
+                                        <span>Sujal (Admin)</span>
+                                        <span class="dropdown-shortcut">Root</span>
+                                    </button>
+                                    <button class="dropdown-item" data-email="sujal">
+                                        <span>Sujal</span>
+                                        <span class="dropdown-shortcut">Dev</span>
+                                    </button>
+                                    <button class="dropdown-item" data-email="alice@corp.internal">
+                                        <span>Alice Admin</span>
+                                        <span class="dropdown-shortcut">Corp</span>
+                                    </button>
+                                    <button class="dropdown-item" data-email="operator@corp.internal">
+                                        <span>Remote Operator</span>
+                                        <span class="dropdown-shortcut">Operator</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Quick Network Switch Chips -->
+                            <div class="sidebar-chips-row">
+                                <button id="sidebar-chip-wifi" class="sidebar-net-chip" title="Switch to Local Wi-Fi">📶 Wi-Fi</button>
+                                <button id="sidebar-chip-localhost" class="sidebar-net-chip active" title="Switch to Localhost">💻 Localhost</button>
+                                <button id="sidebar-chip-tunnel" class="sidebar-net-chip" title="Switch to Cloudflare Tunnel">☁️ Tunnel</button>
+                            </div>
+                            <div class="sidebar-tunnel-subrow">
+                                <button id="btn-sidebar-launch-tunnel" type="button" class="sidebar-tunnel-action" title="Launch Cloudflare Tunnel Terminal">⚡ Launch Terminal Tunnel</button>
+                            </div>
+
+                            <label class="sidebar-label" for="sidebar-txt-server">Gateway URL:</label>
+                            <div class="sidebar-input-row">
+                                <input id="sidebar-txt-server" type="text" class="cyber-input" value="http://127.0.0.1:5293" aria-label="Gateway Base URL" />
+                                <button id="btn-sidebar-apply-server" class="cyber-btn cyber-btn-outline" title="Connect Gateway">Sync</button>
+                            </div>
+                            <div id="sidebar-gateway-mode-badge" class="sidebar-mode-badge">Mode: 💻 Localhost (Loopback)</div>
+
+                            <label class="sidebar-label" for="sidebar-select-user" style="margin-top: 6px;">Operator Identity:</label>
+                            <select id="sidebar-select-user" class="cyber-select" title="Switch Operator Account" aria-label="Switch Operator Account">
+                                <option value="admin@corp.internal">admin@corp.internal (Admin)</option>
+                                <option value="admin">admin (System Admin)</option>
+                                <option value="sujal@corp.internal">sujal@corp.internal (Admin)</option>
+                                <option value="sujal">sujal (Admin)</option>
+                                <option value="alice@corp.internal">alice@corp.internal (Admin)</option>
+                                <option value="operator@corp.internal">operator@corp.internal (Operator)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- CARD 2: TARGET ENDPOINT -->
+                    <div class="sidebar-card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--primary-cyan)">
+                                    <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.11-.9-2-2-2H4c-1.11 0-2 .89-2 2v10c0 1.1.89 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
+                                </svg>
+                                <span>TARGET ENDPOINT</span>
+                            </div>
+                            <button id="btn-sidebar-refresh-devices" class="card-icon-btn" title="Refresh Enrolled Devices">↻</button>
+                        </div>
+                        <div class="card-body">
+                            <label class="sidebar-label" for="sidebar-select-device">Select Remote Workstation:</label>
+                            <select id="sidebar-select-device" class="cyber-select" title="Select Remote Target" aria-label="Select Remote Workstation">
+                                <option value="">Discovering devices...</option>
+                            </select>
+
+                            <label class="sidebar-label" for="sidebar-txt-key" style="margin-top: 6px;">Quick PIN or Permanent Key:</label>
+                            <form class="sidebar-key-row" autocomplete="off" onsubmit="return false;">
+                                <input type="text" name="username" autocomplete="username" style="display:none;" tabindex="-1" aria-hidden="true" />
+                                <input id="sidebar-txt-key" type="password" placeholder="4-digit PIN (e.g. 1234) or Key" class="cyber-input" autocomplete="current-password" aria-label="Quick PIN or Permanent Key" />
+                                <button id="btn-sidebar-toggle-key" class="icon-toggle-btn" title="Toggle Visibility" type="button" aria-label="Toggle Key Visibility">👁</button>
+                            </form>
+
+                            <button id="btn-sidebar-enroll" class="cyber-btn cyber-btn-outline cyber-btn-block" style="margin-top: 8px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                                <span>+ Connect Other PC (Enroll Host)</span>
+                            </button>
+                            <button id="btn-sidebar-manage-keys" class="cyber-btn cyber-btn-outline cyber-btn-block" style="margin-top: 6px;" type="button">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="var(--primary-cyan)"><path d="M7 14c-1.66 0-3 1.34-3 3 0 1.31.84 2.41 2 2.83V21h2v-2h2v-2h-2v-1.17c1.16-.42 2-1.52 2-2.83 0-1.66-1.34-3-3-3zm13.71-9.71a1 1 0 0 0-1.42 0l-9.59 9.59c-.27-.06-.54-.1-.82-.1-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5c0-.28-.04-.55-.1-.82l9.59-9.59c.39-.39.39-1.03 0-1.42z"/></svg>
+                                <span>🔑 Permanent Master Keys</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- CARD 3: SESSION SECURITY & CONTROLS -->
+                    <div class="sidebar-card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--status-success)">
+                                    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+                                </svg>
+                                <span>SESSION CONTROLS</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="sidebar-toggle-item">
+                                <span>Remote Mouse & Keyboard</span>
+                                <input type="checkbox" id="sidebar-toggle-input" class="cyber-checkbox" checked aria-label="Remote Mouse & Keyboard Control" />
+                            </div>
+                            <div class="sidebar-toggle-item">
+                                <span>Synchronize Clipboard</span>
+                                <input type="checkbox" id="sidebar-toggle-clipboard" class="cyber-checkbox" checked aria-label="Synchronize Clipboard" />
+                            </div>
+
+                            <button id="btn-sidebar-connect" class="cyber-btn cyber-btn-primary cyber-btn-block cyber-btn-lg" style="margin-top: 10px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                                <span>START REMOTE SESSION</span>
+                            </button>
+                            <button id="btn-sidebar-disconnect" class="cyber-btn cyber-btn-danger cyber-btn-block" disabled style="margin-top: 6px;">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+                                <span>End Remote Session</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- CARD 4: REAL-TIME TELEMETRY HUD -->
+                    <div class="sidebar-card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="var(--primary-cyan)">
+                                    <path d="M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z"/>
+                                </svg>
+                                <span>REAL-TIME TELEMETRY</span>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="sidebar-hud-box" class="sidebar-hud-box">
+                                <div>• Protocol: <span class="hud-highlight">WebSockets / JPEG Turbo</span></div>
+                                <div>• Target: <span id="sidebar-hud-target" class="hud-val">None</span></div>
+                                <div>• Status: <span id="sidebar-hud-status" class="hud-val">Idle / Ready</span></div>
+                                <div>• Latency: <span id="sidebar-hud-rtt" class="hud-val">-- ms</span></div>
+                                <div>• Framerate: <span id="sidebar-hud-fps" class="hud-val">-- FPS</span></div>
+                                <div>• Bitrate: <span id="sidebar-hud-bitrate" class="hud-val">-- kbps</span></div>
+                                <div>• Resolution: <span id="sidebar-hud-res" class="hud-val">--×--</span></div>
+                                <div>• Security: <span class="hud-good">Zero-Trust Attested</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center Viewport Workspace Canvas -->
+            <main class="viewport-container">
+                <canvas id="viewportCanvas" tabindex="0" title="Click to Focus Remote Desktop"></canvas>
+
+                <div id="viewport-placeholder" class="viewport-placeholder">
+                    <div class="placeholder-icon">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.11-.9-2-2-2H4c-1.11 0-2 .89-2 2v10c0 1.1.89 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
+                        </svg>
+                    </div>
+                    <h1 class="placeholder-title">Remote Viewport Ready</h1>
+                    <p class="placeholder-desc">Select your target enrolled device on the left control panel and click <strong>START REMOTE SESSION</strong> to initiate ultra-low latency desktop streaming.</p>
+                    <div class="placeholder-actions">
+                        <button id="btn-placeholder-enroll" class="cyber-btn cyber-btn-outline">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                            Enroll New Remote Host
+                        </button>
+                        <button id="btn-placeholder-connections" class="cyber-btn cyber-btn-primary">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9v-2h2v2zm0-4H9V7h2v5z"/></svg>
+                            View Connections
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Floating Collapsible Fullscreen Island Controls -->
+                <div id="floating-island-bar" class="floating-island-bar">
+                    <div class="island-grip" title="Drag Island Bar">
+                        <span>⋮⋮</span>
+                    </div>
+                    <div id="float-status-pill" class="island-pill">
+                        <span class="cyber-badge-dot"></span>
+                        <span id="float-device-name">No Session</span>
+                    </div>
+                    <button id="btn-float-input" class="island-btn active" title="Toggle Remote Input Control">
+                        Control: ON
+                    </button>
+                    <button id="btn-float-screens" class="island-btn" title="Switch Display / Desktop">
+                        Screen ▾
+                    </button>
+                    <button id="btn-float-quick" class="island-btn" title="Quick Key Injections">
+                        Keys ▾
+                    </button>
+                    <button id="btn-float-scale" class="island-btn" title="Cycle Viewport Scale Mode">
+                        Fit
+                    </button>
+                    <button id="btn-float-settings" class="island-btn icon-btn" title="Stream Settings">
+                        ⚙
+                    </button>
+                    <button id="btn-float-pin" class="island-btn icon-btn" title="Pin / Unpin Controls">
+                        📌
+                    </button>
+                    <button id="btn-float-collapse" class="island-btn icon-btn" title="Collapse Controls (Full View)">
+                        ▲
+                    </button>
+                    <button id="btn-float-exit-fullscreen" class="island-btn icon-btn" title="Exit Fullscreen (Esc)">
+                        ⛶
+                    </button>
+                    <button id="btn-float-disconnect" class="island-btn island-btn-danger" title="Disconnect Session">
+                        ⏹ End
+                    </button>
+                </div>
+
+                <!-- Sleek Top-Edge Hover Trigger when Collapsed -->
+                <div id="float-edge-trigger" class="float-edge-trigger" title="Hover or Click to Reveal Controls">
+                    <div class="edge-trigger-handle">
+                        <span>▼ REVEAL CONTROLS</span>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Floating Toast Container -->
+        <div id="toast-container"></div>
+
+        <!-- Dialog Backdrop -->
+        <div id="modal-backdrop" class="modal-backdrop"></div>
+
+        <!-- =========================================================================
+             CONNECTIONS & ENROLLMENT MANAGER MODAL
+             ========================================================================= -->
+        <div id="modal-connections" class="cyber-modal">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--primary-cyan)">
+                        <path d="M4 1v22h16V1H4zm14 20H6V3h12v18zM8 5h8v2H8zm0 4h8v2H8zm0 4h5v2H8z"/>
+                    </svg>
+                    <h2>Connections & Endpoint Inventory</h2>
+                </div>
+                <button id="btn-close-connections" class="modal-close-btn" title="Close Dialog">✕</button>
+            </div>
+
+            <!-- Modal Nav Tabs -->
+            <div class="modal-tabs">
+                <button class="modal-tab-btn active" data-tab="tab-enrolled-devices">Enrolled Endpoints</button>
+                <button class="modal-tab-btn" data-tab="tab-enroll-new">+ Enroll Remote PC</button>
+                <button class="modal-tab-btn" data-tab="tab-permanent-keys">🔑 Permanent Master Keys</button>
+                <button class="modal-tab-btn" data-tab="tab-network-gateway">Gateway & Network</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Tab 1: Enrolled Endpoints -->
+                <div id="tab-enrolled-devices" class="modal-tab-pane active">
+                    <div class="tab-toolbar">
+                        <span class="tab-subtitle">All devices paired with the control plane:</span>
+                        <button id="btn-modal-refresh-devices" class="cyber-btn cyber-btn-outline">
+                            ↻ Refresh Devices
+                        </button>
+                    </div>
+                    <div id="connections-device-list" class="connections-grid">
+                        <div class="device-empty-state">Loading enrolled endpoints...</div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Enroll New Host -->
+                <div id="tab-enroll-new" class="modal-tab-pane">
+                    <div class="enrollment-wizard">
+                        <h3 class="wizard-heading">Connect Another Computer to This Control Plane</h3>
+                        <p class="wizard-desc">Follow these 3 simple steps to pair a remote machine with full unattended or attended access:</p>
+                        
+                        <div class="wizard-step">
+                            <span class="step-badge">1</span>
+                            <div class="step-content">
+                                <strong>Extract Streamer on Remote PC:</strong>
+                                <p>Unzip <code>2_REMOTE_PC_STREAMER.zip</code> onto the target Windows computer (e.g. into <code>C:\RemotePC</code>).</p>
+                            </div>
+                        </div>
+
+                        <div class="wizard-step">
+                            <span class="step-badge">2</span>
+                            <div class="step-content">
+                                <strong>Generate Instant Pairing Code:</strong>
+                                <div class="pairing-box">
+                                    <div class="code-row">
+                                        <span class="code-label">Invitation Code:</span>
+                                        <code id="wizard-invitation-code">Generating code...</code>
+                                        <button id="btn-wizard-copy-code" class="cyber-btn cyber-btn-outline">Copy</button>
+                                        <button id="btn-wizard-refresh-code" class="cyber-btn cyber-btn-outline">New Code</button>
+                                    </div>
+                                    <div class="code-row">
+                                        <span class="code-label">Universal PIN:</span>
+                                        <code id="wizard-quick-pin">1234</code>
+                                        <span class="code-hint">(4-digit PIN for instant 1-click access)</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="wizard-step">
+                            <span class="step-badge">3</span>
+                            <div class="step-content">
+                                <strong>Run 1-Click Enrollment in PowerShell (Admin):</strong>
+                                <div class="command-box">
+                                    <textarea id="wizard-powershell-cmd" readonly rows="2" class="cyber-code-area" aria-label="PowerShell Enrollment Command"></textarea>
+                                    <button id="btn-wizard-copy-cmd" class="cyber-btn cyber-btn-primary">Copy PowerShell Command</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Gateway & Network -->
+                <div id="tab-network-gateway" class="modal-tab-pane">
+                    <div class="gateway-settings-box">
+                        <h3>Control Plane Gateway Route</h3>
+                        <p class="gateway-desc">Select how the client connects to the Control Plane API & WebSocket relay:</p>
+
+                        <div class="network-chips-row">
+                            <button id="chip-set-wifi" class="net-chip active">📶 Local Wi-Fi (Auto LAN IP)</button>
+                            <button id="chip-set-localhost" class="net-chip">💻 Localhost (127.0.0.1:5293)</button>
+                            <button id="chip-set-tunnel" class="net-chip">☁️ Cloudflare Public Tunnel</button>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="input-custom-gateway">Current Gateway Base URL:</label>
+                            <div class="input-with-action">
+                                <input id="input-custom-gateway" type="text" class="cyber-input" value="http://127.0.0.1:5293" />
+                                <button id="btn-apply-custom-gateway" class="cyber-btn cyber-btn-primary">Apply & Reconnect</button>
+                            </div>
+                        </div>
+
+                        <div class="gateway-status-panel">
+                            <span class="stat-label">Gateway Status:</span>
+                            <span id="gateway-status-val" class="stat-val good">Online • Ready</span>
+                            <span class="stat-label">Detected LAN IP:</span>
+                            <span id="gateway-lan-val" class="stat-val">192.168.1.1</span>
+                        </div>
+
+                        <!-- Cloudflare Public Internet Tunnel Panel -->
+                        <div class="tunnel-launcher-card">
+                            <div class="tunnel-card-header">
+                                <div class="tunnel-title">
+                                    <span class="tunnel-icon">☁️</span>
+                                    <span>Cloudflare Public Edge Tunnel</span>
+                                </div>
+                                <span id="tunnel-live-badge" class="tunnel-status-badge badge-offline">Offline</span>
+                            </div>
+                            <p class="tunnel-desc">Connect from any outside network, phone hotspot, or remote office without router port forwarding.</p>
+                            
+                            <div id="tunnel-active-row" class="tunnel-active-row" style="display: none;">
+                                <span class="stat-label">Live Tunnel:</span>
+                                <span id="tunnel-active-url" class="tunnel-url-text">Detecting...</span>
+                                <button id="btn-use-active-tunnel" type="button" class="cyber-btn cyber-btn-primary cyber-btn-sm">⚡ Connect via This Tunnel</button>
+                            </div>
+
+                            <div class="tunnel-actions-row">
+                                <button id="btn-launch-tunnel-terminal" type="button" class="cyber-btn cyber-btn-primary" title="Launch Cloudflare Tunnel in new terminal window">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zm-2-1h-4v-2h4v2zm-6.29-2.71L15.59 12l-3.88-3.88 1.41-1.41L18.41 12l-5.29 5.29-1.41-1.41z"/></svg>
+                                    <span>⚡ Launch Terminal Tunnel</span>
+                                </button>
+                                <button id="btn-copy-tunnel-cmd" type="button" class="cyber-btn cyber-btn-outline" title="Copy start command to run in your own terminal">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                                    <span>📋 Copy Terminal Command</span>
+                                </button>
+                            </div>
+                            
+                            <div class="tunnel-input-row">
+                                <input id="input-tunnel-url-manual" type="text" class="cyber-input" placeholder="Paste Cloudflare URL (e.g. https://xxx.trycloudflare.com)" aria-label="Manual Cloudflare Tunnel URL" />
+                                <button id="btn-apply-tunnel-manual" type="button" class="cyber-btn cyber-btn-outline">Apply Tunnel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Permanent Master Keys -->
+                <div id="tab-permanent-keys" class="modal-tab-pane">
+                    <div class="master-keys-header-card">
+                        <div class="master-keys-info">
+                            <span class="info-badge">UNIVERSAL UNATTENDED ACCESS</span>
+                            <h3>Permanent Master Keys (Never Expire • Work on All Devices)</h3>
+                            <p>Permanent Master Keys <strong>never expire</strong> and allow immediate unattended connection to <strong>any and all enrolled computers</strong> using the exact same key. You can define custom secret values manually or auto-generate them.</p>
+                        </div>
+                    </div>
+
+                    <!-- Create / Set Custom Permanent Key Card -->
+                    <div class="cyber-settings-card" style="margin-bottom: 16px;">
+                        <h4 style="margin: 0 0 10px 0; color: var(--primary-cyan); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">+ Create / Set Custom Permanent Key</h4>
+                        <div class="master-key-create-grid">
+                            <div class="form-group">
+                                <label for="txt-master-key-name">Key Friendly Name:</label>
+                                <input id="txt-master-key-name" type="text" class="cyber-input" placeholder="e.g. IT Operations Master Key" value="Universal Enterprise Key" aria-label="Key Friendly Name" />
+                            </div>
+                            <div class="form-group">
+                                <label for="txt-master-key-val">Custom Secret Key Value:</label>
+                                <div class="key-input-action-row">
+                                    <input id="txt-master-key-val" type="text" class="cyber-input mono-font" placeholder="Enter custom permanent key (e.g. CORP-OPS-2026)" aria-label="Custom Secret Key Value" />
+                                    <button id="btn-generate-master-key-val" type="button" class="cyber-btn cyber-btn-outline" title="Generate Random Secure Key" aria-label="Generate Random Secure Key">🎲 Auto-Gen</button>
+                                </div>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="txt-master-key-desc">Description / Scope (Optional):</label>
+                                <input id="txt-master-key-desc" type="text" class="cyber-input" placeholder="e.g. Universal permanent access key across all corporate workstations" aria-label="Key Description" />
+                            </div>
+                        </div>
+                        <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+                            <button id="btn-save-master-key" type="button" class="cyber-btn cyber-btn-primary">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+                                <span>Save & Activate Master Key</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Master Keys List -->
+                    <div class="tab-toolbar">
+                        <span class="tab-subtitle">Configured Permanent Master Keys:</span>
+                        <button id="btn-refresh-master-keys" type="button" class="cyber-btn cyber-btn-outline">
+                            ↻ Refresh Keys
+                        </button>
+                    </div>
+                    <div id="master-keys-list-container" class="master-keys-grid">
+                        <div class="device-empty-state">Loading permanent master keys...</div>
+                    </div>
+                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- =========================================================================
+             SYSTEM & STREAM SETTINGS MODAL
+             ========================================================================= -->
+        <div id="modal-settings" class="cyber-modal">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--primary-cyan)">
+                        <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+                    </svg>
+                    <h2>Enterprise Remote Settings & Policies</h2>
+                </div>
+                <button id="btn-close-settings" class="modal-close-btn" title="Close Dialog">✕</button>
+            </div>
+
+            <!-- Modal Nav Tabs -->
+            <div class="modal-tabs">
+                <button class="modal-tab-btn active" data-tab="tab-settings-stream">Stream & Video</button>
+                <button class="modal-tab-btn" data-tab="tab-settings-input">Input & Security</button>
+                <button class="modal-tab-btn" data-tab="tab-settings-accounts">Operator Identity</button>
+                <button class="modal-tab-btn" data-tab="tab-settings-diagnostics">Diagnostics</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Tab 1: Stream & Video -->
+                <div id="tab-settings-stream" class="modal-tab-pane active">
+                    <div class="settings-form">
+                        <div class="form-section-title">STREAM RENDERING & FPS</div>
+                        
+                        <div class="slider-row">
+                            <div class="slider-header">
+                                <label for="modal-slider-fps">Target Frame Rate (FPS):</label>
+                                <span id="modal-val-fps" class="slider-val-highlight">40 FPS</span>
+                            </div>
+                            <input id="modal-slider-fps" type="range" class="cyber-range" min="15" max="60" step="5" value="40" />
+                            <div class="slider-ticks"><span>15 (Eco)</span><span>30</span><span>40 (Turbo)</span><span>60 (Direct LAN)</span></div>
+                        </div>
+
+                        <div class="slider-row">
+                            <div class="slider-header">
+                                <label for="modal-slider-quality">JPEG Stream Quality:</label>
+                                <span id="modal-val-quality" class="slider-val-highlight">50%</span>
+                            </div>
+                            <input id="modal-slider-quality" type="range" class="cyber-range" min="30" max="95" step="5" value="50" />
+                            <div class="slider-ticks"><span>30% (Speed)</span><span>50% (Balanced)</span><span>75%</span><span>95% (Sharp)</span></div>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="modal-select-resolution">Maximum Stream Resolution:</label>
+                            <select id="modal-select-resolution" class="cyber-select">
+                                <option value="720">720p HD (Low Latency, High FPS)</option>
+                                <option value="1080">1080p FHD (Crisp)</option>
+                                <option value="0">Native Resolution (Unscaled Host Monitor)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-row toggle-row">
+                            <div class="toggle-desc">
+                                <strong>Low-Latency Zero-Buffering Pipeline:</strong>
+                                <span>Bypasses frame queues to deliver sub-millisecond mouse responsiveness.</span>
+                            </div>
+                            <input type="checkbox" id="modal-toggle-low-latency" class="cyber-checkbox" checked aria-label="Low-Latency Zero-Buffering Pipeline" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Input & Security -->
+                <div id="tab-settings-input" class="modal-tab-pane">
+                    <div class="settings-form">
+                        <div class="form-section-title">PERIPHERAL & CLIPBOARD CONTROLS</div>
+
+                        <div class="form-row toggle-row">
+                            <div class="toggle-desc">
+                                <strong>Interactive Mouse & Keyboard:</strong>
+                                <span>Injects clicks, drags, wheel scrolls, and keystrokes into the host.</span>
+                            </div>
+                            <input type="checkbox" id="modal-toggle-input" class="cyber-checkbox" checked aria-label="Interactive Mouse & Keyboard Injection" />
+                        </div>
+
+                        <div class="form-row toggle-row">
+                            <div class="toggle-desc">
+                                <strong>Bidirectional Clipboard Synchronization:</strong>
+                                <span>Automatically syncs copied text between this device and the remote PC.</span>
+                            </div>
+                            <input type="checkbox" id="modal-toggle-clipboard" class="cyber-checkbox" checked aria-label="Bidirectional Clipboard Synchronization" />
+                        </div>
+
+                        <div class="form-section-title">PERMANENT MASTER ACCESS</div>
+                        <div class="cyber-settings-card" style="margin-bottom: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                <div>
+                                    <strong style="color: var(--text-primary); font-size: 13px;">Universal Master Keys (All Devices):</strong>
+                                    <p style="margin: 4px 0 0 0; font-size: 11px; color: var(--text-secondary);">Manage permanent access keys that never expire and connect to all enrolled computers.</p>
+                                </div>
+                                <button id="btn-settings-open-master-keys" type="button" class="cyber-btn cyber-btn-outline">
+                                    <span>🔑 Manage Master Keys</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="form-section-title danger-section">EMERGENCY CONTROLS</div>
+                        <div class="danger-box">
+                            <div>
+                                <strong>Emergency Host Kill Switch:</strong>
+                                <p>Immediately revokes session authorization and disables remote agent streaming.</p>
+                            </div>
+                            <button id="btn-emergency-kill" class="cyber-btn cyber-btn-danger">
+                                Emergency Kill Host
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Operator Identity -->
+                <div id="tab-settings-accounts" class="modal-tab-pane">
+                    <div class="accounts-directory-box">
+                        <h3>Operator Directory & Roles</h3>
+                        <p>Select any authorized identity to operate with its enterprise privileges:</p>
+
+                        <div id="accounts-cards-list" class="accounts-cards-grid">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Diagnostics -->
+                <div id="tab-settings-diagnostics" class="modal-tab-pane">
+                    <div class="diagnostics-panel">
+                        <div class="diag-item">
+                            <span class="diag-label">Active Hostname:</span>
+                            <span id="diag-hostname" class="diag-val">--</span>
+                        </div>
+                        <div class="diag-item">
+                            <span class="diag-label">Active Device ID:</span>
+                            <span id="diag-device-id" class="diag-val">--</span>
+                        </div>
+                        <div class="diag-item">
+                            <span class="diag-label">Session ID:</span>
+                            <span id="diag-session-id" class="diag-val">--</span>
+                        </div>
+                        <div class="diag-item">
+                            <span class="diag-label">Control Plane URL:</span>
+                            <span id="diag-gateway-url" class="diag-val">--</span>
+                        </div>
+                        <div class="diag-item">
+                            <span class="diag-label">Round Trip Time (RTT):</span>
+                            <span id="diag-rtt" class="diag-val">-- ms</span>
+                        </div>
+                        <div class="diag-item">
+                            <span class="diag-label">Frames Decoded:</span>
+                            <span id="diag-frames" class="diag-val">0</span>
+                        </div>
+                        <div class="diag-item">
+                            <span class="diag-label">Total Data Transferred:</span>
+                            <span id="diag-bytes" class="diag-val">0 KB</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script Entry Point -->
+    <script type="module" src="js/app.js?v=20261102_v4"></script>
+</body>
+</html>
