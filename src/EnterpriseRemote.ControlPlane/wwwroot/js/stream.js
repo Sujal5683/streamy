@@ -31,6 +31,8 @@ export class RemoteStreamClient {
         this.remoteWidth = 1920;
         this.remoteHeight = 1080;
         this.renderRect = { x: 0, y: 0, width: 0, height: 0 };
+        this.incomingSeq = 0;
+        this.latestRenderedSeq = 0;
 
         // Telemetry
         this.frameCount = 0;
@@ -207,12 +209,21 @@ export class RemoteStreamClient {
         // 3. Desktop JPEG frame: starts with SOI marker 0xFF, 0xD8
         if (len > 4 && view.getUint8(0) === 0xFF && view.getUint8(1) === 0xD8) {
             try {
+                this.incomingSeq = (this.incomingSeq || 0) + 1;
+                const seq = this.incomingSeq;
+
                 const blob = new Blob([buffer], { type: 'image/jpeg' });
                 // createImageBitmap is hardware-accelerated and runs off the main JS thread
                 const bitmap = await createImageBitmap(blob, {
                     imageOrientation: 'none',
                     premultiplyAlpha: 'none'
                 });
+
+                if (seq < this.latestRenderedSeq) {
+                    bitmap.close();
+                    return;
+                }
+                this.latestRenderedSeq = seq;
 
                 this.remoteWidth = bitmap.width;
                 this.remoteHeight = bitmap.height;

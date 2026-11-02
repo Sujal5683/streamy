@@ -11,6 +11,9 @@ echo   Starting secure zero-config Cloudflare edge tunnel...
 echo   This allows you to stream between PCs across DIFFERENT networks
 echo   (e.g., mobile hotspot, remote home, coffee shop, another city).
 echo.
+echo   TIP: For maximum FPS and lowest latency over WAN, use
+echo        START_TAILSCALE_MODE.bat instead (WireGuard UDP direct P2P).
+echo.
 echo  ================================================================
 echo.
 

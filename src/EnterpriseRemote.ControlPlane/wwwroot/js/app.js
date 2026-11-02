@@ -100,6 +100,8 @@ class WebControllerApp {
             scaleFit: document.getElementById('btn-scale-fit'),
             scaleStretch: document.getElementById('btn-scale-stretch'),
             scaleOriginal: document.getElementById('btn-scale-original'),
+            profile144: document.getElementById('btn-profile-144'),
+            profile120: document.getElementById('btn-profile-120'),
             profileLan: document.getElementById('btn-profile-lan'),
             profileWan: document.getElementById('btn-profile-wan'),
             profileSharp: document.getElementById('btn-profile-sharp'),
@@ -120,6 +122,7 @@ class WebControllerApp {
             sliderQualityVal: document.getElementById('val-slider-quality'),
             selectHeight: document.getElementById('select-max-height'),
             valSliderResBadge: document.getElementById('val-slider-res-badge'),
+            btnRes540: document.getElementById('btn-res-540'),
             btnRes720: document.getElementById('btn-res-720'),
             btnRes1080: document.getElementById('btn-res-1080'),
             btnResNative: document.getElementById('btn-res-native'),
@@ -164,10 +167,24 @@ class WebControllerApp {
             chipWifi: document.getElementById('chip-set-wifi'),
             chipLocalhost: document.getElementById('chip-set-localhost'),
             chipTunnel: document.getElementById('chip-set-tunnel'),
+            chipTailscale: document.getElementById('chip-set-tailscale'),
             inputCustomGateway: document.getElementById('input-custom-gateway'),
             btnApplyGateway: document.getElementById('btn-apply-custom-gateway'),
             gatewayStatusVal: document.getElementById('gateway-status-val'),
             gatewayLanVal: document.getElementById('gateway-lan-val'),
+            gatewayTailscaleVal: document.getElementById('gateway-tailscale-val'),
+            sidebarDetectedLanIp: document.getElementById('sidebar-detected-lan-ip'),
+            btnSidebarCopyLan: document.getElementById('btn-sidebar-copy-lan'),
+            sidebarDetectedTunnelStatus: document.getElementById('sidebar-detected-tunnel-status'),
+            btnSidebarCopyTunnel: document.getElementById('btn-sidebar-copy-tunnel'),
+            sidebarDetectedTailscaleStatus: document.getElementById('sidebar-detected-tailscale-status'),
+            btnSidebarCopyTailscale: document.getElementById('btn-sidebar-copy-tailscale'),
+
+            // Dual-Mode Tunnel Elements (Cloudflare & Tailscale)
+            btnTunnelModeCf: document.getElementById('btn-tunnel-mode-cf'),
+            btnTunnelModeTs: document.getElementById('btn-tunnel-mode-ts'),
+            panelTunnelCloudflare: document.getElementById('panel-tunnel-cloudflare'),
+            panelTunnelTailscale: document.getElementById('panel-tunnel-tailscale'),
 
             // Cloudflare Tunnel Launcher Elements
             tunnelLiveBadge: document.getElementById('tunnel-live-badge'),
@@ -179,6 +196,16 @@ class WebControllerApp {
             inputTunnelUrlManual: document.getElementById('input-tunnel-url-manual'),
             btnApplyTunnelManual: document.getElementById('btn-apply-tunnel-manual'),
             btnSidebarLaunchTunnel: document.getElementById('btn-sidebar-launch-tunnel'),
+
+            // Tailscale P2P WireGuard Launcher Elements
+            tailscaleLiveBadge: document.getElementById('tailscale-live-badge'),
+            tailscaleActiveRow: document.getElementById('tailscale-active-row'),
+            tailscaleActiveUrl: document.getElementById('tailscale-active-url'),
+            btnUseActiveTailscale: document.getElementById('btn-use-active-tailscale'),
+            btnLaunchTailscaleHelper: document.getElementById('btn-launch-tailscale-helper'),
+            btnCopyTailscaleUrl: document.getElementById('btn-copy-tailscale-url'),
+            tsInstSampleUrl: document.getElementById('ts-inst-sample-url'),
+            btnSidebarLaunchTailscale: document.getElementById('btn-sidebar-launch-tailscale'),
 
             // Settings Modal Elements
             modalSliderFps: document.getElementById('modal-slider-fps'),
@@ -214,6 +241,7 @@ class WebControllerApp {
             sidebarChipWifi: document.getElementById('sidebar-chip-wifi'),
             sidebarChipLocalhost: document.getElementById('sidebar-chip-localhost'),
             sidebarChipTunnel: document.getElementById('sidebar-chip-tunnel'),
+            sidebarChipTailscale: document.getElementById('sidebar-chip-tailscale'),
             sidebarSelectDevice: document.getElementById('sidebar-select-device'),
             btnSidebarRefreshDevices: document.getElementById('btn-sidebar-refresh-devices'),
             sidebarTxtKey: document.getElementById('sidebar-txt-key'),
@@ -637,6 +665,51 @@ class WebControllerApp {
                 this.detectAndApplyTunnel();
             });
         }
+        if (this.dom.sidebarChipTailscale) {
+            this.dom.sidebarChipTailscale.addEventListener('click', () => {
+                this.applyTailscaleGateway();
+            });
+        }
+        if (this.dom.btnSidebarLaunchTailscale) {
+            this.dom.btnSidebarLaunchTailscale.addEventListener('click', () => {
+                this.launchTailscaleTerminal();
+            });
+        }
+        if (this.dom.sidebarDetectedTailscaleStatus) {
+            this.dom.sidebarDetectedTailscaleStatus.addEventListener('click', () => {
+                this.applyTailscaleGateway();
+            });
+        }
+        if (this.dom.btnSidebarCopyTailscale) {
+            this.dom.btnSidebarCopyTailscale.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.copyTailscaleUrl();
+            });
+        }
+        if (this.dom.sidebarDetectedLanIp) {
+            this.dom.sidebarDetectedLanIp.addEventListener('click', () => {
+                this.switchToLanGateway();
+            });
+        }
+        if (this.dom.btnSidebarCopyLan) {
+            this.dom.btnSidebarCopyLan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const ip = this.detectedLanIp || this.dom.sidebarDetectedLanIp.textContent;
+                if (ip && ip !== 'Detecting...' && ip !== 'Offline') {
+                    navigator.clipboard.writeText(`http://${ip}:5293`);
+                    this.showToast(`Copied LAN Gateway URL: http://${ip}:5293`, 'success');
+                }
+            });
+        }
+        if (this.dom.btnSidebarCopyTunnel) {
+            this.dom.btnSidebarCopyTunnel.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.activeTunnelUrl) {
+                    navigator.clipboard.writeText(this.activeTunnelUrl);
+                    this.showToast(`Copied Tunnel URL: ${this.activeTunnelUrl}`, 'success');
+                }
+            });
+        }
 
         // Viewport Scaling Modes
         const setScale = (mode, btn) => {
@@ -721,17 +794,48 @@ class WebControllerApp {
         });
 
         // Stream Profiles
+        if (this.dom.profile144) {
+            this.dom.profile144.addEventListener('click', () => {
+                this.applyProfile(144, 70, 1080, 'Extreme 144 FPS (144 FPS, 1080p)');
+                this.updateProfileButtons(this.dom.profile144);
+            });
+        }
+        if (this.dom.profile120) {
+            this.dom.profile120.addEventListener('click', () => {
+                this.applyProfile(120, 55, 720, 'Cloudflare Ultra (120 FPS, 720p)');
+                this.updateProfileButtons(this.dom.profile120);
+            });
+        }
         this.dom.profileLan.addEventListener('click', () => {
             this.applyProfile(60, 65, 1080, 'Direct LAN (60 FPS, 1080p)');
             this.updateProfileButtons(this.dom.profileLan);
         });
         this.dom.profileWan.addEventListener('click', () => {
-            this.applyProfile(40, 50, 720, 'WAN Turbo (40 FPS, 720p)');
+            this.applyProfile(40, 50, 720, 'Adaptive WAN (40 FPS, 720p)');
             this.updateProfileButtons(this.dom.profileWan);
         });
         this.dom.profileSharp.addEventListener('click', () => {
             this.applyProfile(30, 85, 0, 'Ultra Sharp (30 FPS, Native)');
             this.updateProfileButtons(this.dom.profileSharp);
+        });
+
+        // Quick FPS Chips in Tuning Popover
+        const updateFpsChips = (fps) => {
+            const fpsInt = parseInt(fps, 10);
+            document.querySelectorAll('.fps-chip-btn').forEach(btn => {
+                const bFps = parseInt(btn.getAttribute('data-fps'), 10);
+                btn.classList.toggle('active', bFps === fpsInt);
+            });
+        };
+
+        document.querySelectorAll('.fps-chip-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const fps = parseInt(btn.getAttribute('data-fps'), 10);
+                if (fps) {
+                    syncSliders(fps, parseInt(this.dom.sliderQuality.value, 10), parseInt(this.dom.selectHeight.value, 10));
+                }
+            });
         });
 
         // Custom Stream Config Sliders (Toolbar Popover)
@@ -749,6 +853,9 @@ class WebControllerApp {
             this.dom.selectHeight.value = maxHeight.toString();
             this.dom.modalSelectRes.value = maxHeight.toString();
 
+            updateFpsChips(fps);
+            updateResChips(maxHeight);
+
             this.streamClient.applyStreamConfig(fps, quality, maxHeight, this.dom.modalToggleLowLatency.checked ? 1 : 0);
             this.updateProfileButtons(null);
         };
@@ -758,8 +865,11 @@ class WebControllerApp {
         // Resolution Chips in Stream Tuning Popover
         const updateResChips = (res) => {
             const resInt = parseInt(res, 10);
-            [this.dom.btnRes720, this.dom.btnRes1080, this.dom.btnResNative].forEach(b => b?.classList.remove('active'));
-            if (resInt === 720) {
+            [this.dom.btnRes540, this.dom.btnRes720, this.dom.btnRes1080, this.dom.btnResNative].forEach(b => b?.classList.remove('active'));
+            if (resInt === 540) {
+                this.dom.btnRes540?.classList.add('active');
+                if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '540p Turbo';
+            } else if (resInt === 720) {
                 this.dom.btnRes720?.classList.add('active');
                 if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '720p HD';
             } else if (resInt === 1080) {
@@ -779,6 +889,7 @@ class WebControllerApp {
             this.showToast(`Stream max resolution set to ${resInt === 0 ? 'Native (Original)' : resInt + 'p'}`, 'info');
         };
 
+        if (this.dom.btnRes540) this.dom.btnRes540.addEventListener('click', (e) => { e.stopPropagation(); setStreamResolution(540); });
         if (this.dom.btnRes720) this.dom.btnRes720.addEventListener('click', (e) => { e.stopPropagation(); setStreamResolution(720); });
         if (this.dom.btnRes1080) this.dom.btnRes1080.addEventListener('click', (e) => { e.stopPropagation(); setStreamResolution(1080); });
         if (this.dom.btnResNative) this.dom.btnResNative.addEventListener('click', (e) => { e.stopPropagation(); setStreamResolution(0); });
@@ -1019,11 +1130,51 @@ class WebControllerApp {
             this.applyGatewayUrl('http://127.0.0.1:5293');
         });
         this.dom.chipTunnel.addEventListener('click', () => {
+            this.switchTunnelMode('cloudflare');
             this.detectAndApplyTunnel();
         });
+        if (this.dom.chipTailscale) {
+            this.dom.chipTailscale.addEventListener('click', () => {
+                this.switchTunnelMode('tailscale');
+                this.applyTailscaleGateway();
+            });
+        }
         this.dom.btnApplyGateway.addEventListener('click', () => {
             this.applyGatewayUrl(this.dom.inputCustomGateway.value.trim());
         });
+
+        // Dual-Mode Tunnel Tab Switcher
+        if (this.dom.btnTunnelModeCf) {
+            this.dom.btnTunnelModeCf.addEventListener('click', () => {
+                this.switchTunnelMode('cloudflare');
+            });
+        }
+        if (this.dom.btnTunnelModeTs) {
+            this.dom.btnTunnelModeTs.addEventListener('click', () => {
+                this.switchTunnelMode('tailscale');
+            });
+        }
+
+        // Tailscale Actions
+        if (this.dom.btnUseActiveTailscale) {
+            this.dom.btnUseActiveTailscale.addEventListener('click', () => {
+                if (this.activeTailscaleUrl) {
+                    this.applyGatewayUrl(this.activeTailscaleUrl);
+                    closeModals();
+                    this.showToast(`Connected via Tailscale: ${this.activeTailscaleUrl}`, 'success');
+                }
+            });
+        }
+        if (this.dom.btnLaunchTailscaleHelper) {
+            this.dom.btnLaunchTailscaleHelper.addEventListener('click', () => {
+                this.launchTailscaleTerminal();
+            });
+        }
+        if (this.dom.btnCopyTailscaleUrl) {
+            this.dom.btnCopyTailscaleUrl.addEventListener('click', () => {
+                this.copyTailscaleUrl();
+            });
+        }
 
         // Cloudflare Tunnel Launcher Actions
         if (this.dom.btnLaunchTunnelTerminal) {
@@ -1116,7 +1267,7 @@ class WebControllerApp {
     }
 
     updateProfileButtons(activeBtn) {
-        [this.dom.profileLan, this.dom.profileWan, this.dom.profileSharp].forEach(b => b?.classList.remove('active'));
+        [this.dom.profile144, this.dom.profile120, this.dom.profileLan, this.dom.profileWan, this.dom.profileSharp].forEach(b => b?.classList.remove('active'));
         if (activeBtn) activeBtn.classList.add('active');
     }
 
@@ -1132,35 +1283,147 @@ class WebControllerApp {
         this.dom.modalValQuality.textContent = quality + '%';
         this.dom.modalSelectRes.value = maxHeight.toString();
 
+        // Sync quick chips
+        document.querySelectorAll('.fps-chip-btn').forEach(btn => {
+            const bFps = parseInt(btn.getAttribute('data-fps'), 10);
+            btn.classList.toggle('active', bFps === fps);
+        });
+        [this.dom.btnRes540, this.dom.btnRes720, this.dom.btnRes1080, this.dom.btnResNative].forEach(b => b?.classList.remove('active'));
+        if (maxHeight === 540) {
+            this.dom.btnRes540?.classList.add('active');
+            if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '540p Turbo';
+        } else if (maxHeight === 720) {
+            this.dom.btnRes720?.classList.add('active');
+            if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '720p HD';
+        } else if (maxHeight === 1080) {
+            this.dom.btnRes1080?.classList.add('active');
+            if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '1080p FHD';
+        } else {
+            this.dom.btnResNative?.classList.add('active');
+            if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = 'Native 1:1';
+        }
+
         this.streamClient.applyStreamConfig(fps, quality, maxHeight, 1);
         this.showToast(`Applied ${label}`, 'info');
+    }
+
+    isTailscaleUrl(url) {
+        if (!url) return false;
+        const host = url.replace(/https?:\/\//i, '').split(':')[0].split('/')[0];
+        if (host.endsWith('.ts.net') || host.endsWith('.tailscale.net')) return true;
+        const parts = host.split('.');
+        if (parts.length === 4) {
+            const p0 = parseInt(parts[0], 10);
+            const p1 = parseInt(parts[1], 10);
+            if (p0 === 100 && p1 >= 64 && p1 <= 127) return true;
+        }
+        return false;
+    }
+
+    switchTunnelMode(mode) {
+        if (mode === 'cloudflare') {
+            this.dom.btnTunnelModeCf?.classList.add('active');
+            this.dom.btnTunnelModeTs?.classList.remove('active');
+            if (this.dom.panelTunnelCloudflare) this.dom.panelTunnelCloudflare.style.display = 'flex';
+            if (this.dom.panelTunnelTailscale) this.dom.panelTunnelTailscale.style.display = 'none';
+        } else {
+            this.dom.btnTunnelModeTs?.classList.add('active');
+            this.dom.btnTunnelModeCf?.classList.remove('active');
+            if (this.dom.panelTunnelCloudflare) this.dom.panelTunnelCloudflare.style.display = 'none';
+            if (this.dom.panelTunnelTailscale) this.dom.panelTunnelTailscale.style.display = 'flex';
+        }
+    }
+
+    async applyTailscaleGateway() {
+        if (this.activeTailscaleUrl) {
+            this.applyGatewayUrl(this.activeTailscaleUrl);
+            return;
+        }
+        const status = await this.refreshTunnelStatus();
+        if (status && (this.activeTailscaleUrl || (status.tailscale && status.tailscale.active && status.tailscale.url))) {
+            this.applyGatewayUrl(this.activeTailscaleUrl || status.tailscale.url);
+        } else {
+            this.showToast('Tailscale is not active on this PC. Launching Tailscale setup helper...', 'info');
+            await this.launchTailscaleTerminal();
+        }
+    }
+
+    copyTailscaleUrl() {
+        const targetUrl = this.activeTailscaleUrl || (this.activeTailscaleIp ? `http://${this.activeTailscaleIp}:5293` : 'http://100.x.y.z:5293');
+        navigator.clipboard.writeText(targetUrl);
+        this.showToast(`Copied Tailscale URL: ${targetUrl}`, 'success');
+    }
+
+    async launchTailscaleTerminal() {
+        try {
+            this.showToast('Launching Tailscale Low-Latency Setup & Status Helper...', 'info');
+            const resp = await this.fetchGatewayApi('/api/v1/gateway/start-tailscale', { method: 'POST' });
+            if (!resp || !resp.ok) throw new Error('Could not reach Gateway host API');
+            const data = await resp.json();
+            this.showToast(data.message || 'Tailscale helper terminal launched!', 'success');
+
+            // Open connections modal to gateway tab on Tailscale subpanel
+            this.dom.modalBackdrop?.classList.add('show');
+            this.dom.modalConnections?.classList.add('show');
+            this.switchModalTab(this.dom.modalConnections, 'tab-network-gateway');
+            this.switchTunnelMode('tailscale');
+
+            // Poll for Tailscale IP over next 20 seconds
+            let attempts = 0;
+            const pollInterval = setInterval(async () => {
+                attempts++;
+                const status = await this.refreshTunnelStatus();
+                if (status && this.activeTailscaleUrl) {
+                    clearInterval(pollInterval);
+                    this.showToast(`Tailscale connected! URL: ${this.activeTailscaleUrl}`, 'success');
+                } else if (attempts > 10) {
+                    clearInterval(pollInterval);
+                }
+            }, 2000);
+        } catch (err) {
+            this.showToast(`Failed to launch Tailscale helper: ${err.message}`, 'error');
+        }
     }
 
     updateGatewayChip() {
         const url = this.serverUrl;
         let modeLabel = 'Mode: 💻 Localhost (Loopback)';
+        const allChips = [
+            this.dom.sidebarChipWifi,
+            this.dom.sidebarChipLocalhost,
+            this.dom.sidebarChipTunnel,
+            this.dom.sidebarChipTailscale,
+            this.dom.chipWifi,
+            this.dom.chipLocalhost,
+            this.dom.chipTunnel,
+            this.dom.chipTailscale
+        ];
+        allChips.forEach(c => c?.classList.remove('active'));
+
         if (url.includes('127.0.0.1') || url.includes('localhost')) {
             this.dom.gatewayChipText.textContent = '💻 Localhost:5293';
             modeLabel = 'Mode: 💻 Localhost (Loopback)';
-            if (this.dom.sidebarChipLocalhost) {
-                [this.dom.sidebarChipWifi, this.dom.sidebarChipLocalhost, this.dom.sidebarChipTunnel].forEach(c => c?.classList.remove('active'));
-                this.dom.sidebarChipLocalhost.classList.add('active');
-            }
+            this.dom.sidebarChipLocalhost?.classList.add('active');
+            this.dom.chipLocalhost?.classList.add('active');
         } else if (url.includes('trycloudflare.com') || url.includes('cloudflare')) {
             this.dom.gatewayChipText.textContent = '☁️ Cloudflare Tunnel';
             modeLabel = 'Mode: ☁️ Cloudflare Tunnel';
-            if (this.dom.sidebarChipTunnel) {
-                [this.dom.sidebarChipWifi, this.dom.sidebarChipLocalhost, this.dom.sidebarChipTunnel].forEach(c => c?.classList.remove('active'));
-                this.dom.sidebarChipTunnel.classList.add('active');
-            }
+            this.dom.sidebarChipTunnel?.classList.add('active');
+            this.dom.chipTunnel?.classList.add('active');
+            this.switchTunnelMode('cloudflare');
+        } else if (this.isTailscaleUrl(url)) {
+            const host = url.replace(/https?:\/\//i, '').split(':')[0].split('/')[0];
+            this.dom.gatewayChipText.textContent = `⚡ Tailscale (${host})`;
+            modeLabel = `Mode: ⚡ Tailscale WireGuard (${host})`;
+            this.dom.sidebarChipTailscale?.classList.add('active');
+            this.dom.chipTailscale?.classList.add('active');
+            this.switchTunnelMode('tailscale');
         } else {
-            const host = url.replace(/https?:\/\//i, '').split(':')[0];
+            const host = url.replace(/https?:\/\//i, '').split(':')[0].split('/')[0];
             this.dom.gatewayChipText.textContent = `📶 LAN (${host})`;
             modeLabel = `Mode: 📶 Local Wi-Fi (${host})`;
-            if (this.dom.sidebarChipWifi) {
-                [this.dom.sidebarChipWifi, this.dom.sidebarChipLocalhost, this.dom.sidebarChipTunnel].forEach(c => c?.classList.remove('active'));
-                this.dom.sidebarChipWifi.classList.add('active');
-            }
+            this.dom.sidebarChipWifi?.classList.add('active');
+            this.dom.chipWifi?.classList.add('active');
         }
         this.dom.inputCustomGateway.value = this.serverUrl;
         if (this.dom.sidebarTxtServer) this.dom.sidebarTxtServer.value = this.serverUrl;
@@ -1203,15 +1466,15 @@ class WebControllerApp {
             const resp = await this.fetchGatewayApi('/api/v1/gateway/tunnel');
             if (resp && resp.ok) {
                 const data = await resp.json();
-                if (data.active && data.url) {
-                    // applyGatewayUrl handles toast + auth — no extra toast here
-                    this.applyGatewayUrl(data.url);
+                const cfUrl = data.cloudflare?.url || (data.active && data.url && !this.isTailscaleUrl(data.url) ? data.url : null);
+                if (cfUrl) {
+                    this.applyGatewayUrl(cfUrl);
                     return;
                 }
-                if (data.tailscaleUrl) {
-                    // Tailscale is a great secondary option when Cloudflare isn't active
-                    this.showToast(`No Cloudflare tunnel active. Trying Tailscale: ${data.tailscaleUrl}`, 'info');
-                    this.applyGatewayUrl(data.tailscaleUrl);
+                const tsUrl = data.tailscale?.url || data.tailscaleUrl;
+                if (tsUrl) {
+                    this.showToast(`No Cloudflare tunnel active. Connecting via Tailscale: ${tsUrl}`, 'info');
+                    this.applyGatewayUrl(tsUrl);
                     return;
                 }
             }
@@ -1225,26 +1488,116 @@ class WebControllerApp {
             const resp = await this.fetchGatewayApi('/api/v1/gateway/tunnel');
             if (resp && resp.ok) {
                 const data = await resp.json();
-                if (data.active && data.url) {
+
+                // 1. Process Cloudflare Tunnel State
+                const cfUrl = data.cloudflare?.url || (data.active && data.url && !this.isTailscaleUrl(data.url) ? data.url : null);
+                if (cfUrl) {
+                    this.activeTunnelUrl = cfUrl;
                     if (this.dom.tunnelLiveBadge) {
                         this.dom.tunnelLiveBadge.textContent = 'ONLINE / READY';
                         this.dom.tunnelLiveBadge.className = 'tunnel-status-badge active';
                     }
                     if (this.dom.tunnelActiveRow) this.dom.tunnelActiveRow.style.display = 'flex';
-                    if (this.dom.tunnelActiveUrl) this.dom.tunnelActiveUrl.textContent = data.url;
+                    if (this.dom.tunnelActiveUrl) this.dom.tunnelActiveUrl.textContent = cfUrl;
                     if (this.dom.inputTunnelUrlManual && !this.dom.inputTunnelUrlManual.value) {
-                        this.dom.inputTunnelUrlManual.value = data.url;
+                        this.dom.inputTunnelUrlManual.value = cfUrl;
                     }
-                    return data;
+                    if (this.dom.sidebarDetectedTunnelStatus) {
+                        this.dom.sidebarDetectedTunnelStatus.textContent = 'Active (Ready)';
+                        this.dom.sidebarDetectedTunnelStatus.className = 'net-detail-val good';
+                        this.dom.sidebarDetectedTunnelStatus.title = `Click to connect via Cloudflare: ${cfUrl}`;
+                    }
+                    if (this.dom.btnSidebarCopyTunnel) {
+                        this.dom.btnSidebarCopyTunnel.style.display = 'inline-block';
+                    }
+                } else {
+                    this.activeTunnelUrl = null;
+                    if (this.dom.tunnelLiveBadge) {
+                        this.dom.tunnelLiveBadge.textContent = 'NOT RUNNING';
+                        this.dom.tunnelLiveBadge.className = 'tunnel-status-badge inactive';
+                    }
+                    if (this.dom.tunnelActiveRow) this.dom.tunnelActiveRow.style.display = 'none';
+                    if (this.dom.sidebarDetectedTunnelStatus) {
+                        this.dom.sidebarDetectedTunnelStatus.textContent = 'Offline';
+                        this.dom.sidebarDetectedTunnelStatus.className = 'net-detail-val val-inactive';
+                        this.dom.sidebarDetectedTunnelStatus.title = 'Cloudflare tunnel not running';
+                    }
+                    if (this.dom.btnSidebarCopyTunnel) {
+                        this.dom.btnSidebarCopyTunnel.style.display = 'none';
+                    }
                 }
+
+                // 2. Process Tailscale WireGuard State
+                const tsIp = data.tailscale?.ip || data.tailscaleIp;
+                const tsUrl = data.tailscale?.url || data.tailscaleUrl || (tsIp ? `http://${tsIp}:5293` : null);
+                if (tsIp && tsUrl) {
+                    this.activeTailscaleIp = tsIp;
+                    this.activeTailscaleUrl = tsUrl;
+                    if (this.dom.gatewayTailscaleVal) {
+                        this.dom.gatewayTailscaleVal.textContent = `${tsIp} (Online)`;
+                        this.dom.gatewayTailscaleVal.className = 'stat-val good';
+                    }
+                    if (this.dom.sidebarDetectedTailscaleStatus) {
+                        this.dom.sidebarDetectedTailscaleStatus.textContent = `${tsIp}`;
+                        this.dom.sidebarDetectedTailscaleStatus.className = 'net-detail-val good';
+                        this.dom.sidebarDetectedTailscaleStatus.title = `Click to connect via Tailscale: ${tsUrl}`;
+                    }
+                    if (this.dom.btnSidebarCopyTailscale) {
+                        this.dom.btnSidebarCopyTailscale.style.display = 'inline-block';
+                    }
+                    if (this.dom.tailscaleLiveBadge) {
+                        this.dom.tailscaleLiveBadge.textContent = `ONLINE (${tsIp})`;
+                        this.dom.tailscaleLiveBadge.className = 'tunnel-status-badge active';
+                    }
+                    if (this.dom.tailscaleActiveRow) {
+                        this.dom.tailscaleActiveRow.style.display = 'flex';
+                    }
+                    if (this.dom.tailscaleActiveUrl) {
+                        this.dom.tailscaleActiveUrl.textContent = tsUrl;
+                    }
+                    if (this.dom.tsInstSampleUrl) {
+                        this.dom.tsInstSampleUrl.textContent = tsUrl;
+                    }
+                } else {
+                    this.activeTailscaleIp = null;
+                    this.activeTailscaleUrl = null;
+                    if (this.dom.gatewayTailscaleVal) {
+                        this.dom.gatewayTailscaleVal.textContent = 'Offline / Not Detected';
+                        this.dom.gatewayTailscaleVal.className = 'stat-val';
+                    }
+                    if (this.dom.sidebarDetectedTailscaleStatus) {
+                        this.dom.sidebarDetectedTailscaleStatus.textContent = 'Offline';
+                        this.dom.sidebarDetectedTailscaleStatus.className = 'net-detail-val val-inactive';
+                    }
+                    if (this.dom.btnSidebarCopyTailscale) {
+                        this.dom.btnSidebarCopyTailscale.style.display = 'none';
+                    }
+                    if (this.dom.tailscaleLiveBadge) {
+                        this.dom.tailscaleLiveBadge.textContent = 'NOT DETECTED';
+                        this.dom.tailscaleLiveBadge.className = 'tunnel-status-badge inactive';
+                    }
+                    if (this.dom.tailscaleActiveRow) {
+                        this.dom.tailscaleActiveRow.style.display = 'none';
+                    }
+                }
+
+                return data;
             }
         } catch { }
 
+        this.activeTunnelUrl = null;
         if (this.dom.tunnelLiveBadge) {
             this.dom.tunnelLiveBadge.textContent = 'NOT RUNNING';
             this.dom.tunnelLiveBadge.className = 'tunnel-status-badge inactive';
         }
         if (this.dom.tunnelActiveRow) this.dom.tunnelActiveRow.style.display = 'none';
+        if (this.dom.sidebarDetectedTunnelStatus) {
+            this.dom.sidebarDetectedTunnelStatus.textContent = 'Offline';
+            this.dom.sidebarDetectedTunnelStatus.className = 'net-detail-val val-inactive';
+        }
+        if (this.dom.btnSidebarCopyTunnel) {
+            this.dom.btnSidebarCopyTunnel.style.display = 'none';
+        }
         return { active: false };
     }
 
@@ -1289,8 +1642,9 @@ class WebControllerApp {
         const defaultEmail = this.dom.userSelect.value || 'admin@corp.internal';
         await this.authenticateUser(defaultEmail);
 
-        // Populate LAN IP chip with the real adapter IP from the backend
+        // Populate LAN IP and Tunnel status in sidebar and modals
         this.refreshGatewayLanIp();
+        this.refreshTunnelStatus();
 
         // Auto-discover newly enrolled devices every 3 seconds while not in an active session
         setInterval(() => {
@@ -1301,6 +1655,9 @@ class WebControllerApp {
 
         // Refresh LAN IP every 30 s to catch network changes (Wi-Fi roam, VPN up/down, etc.)
         setInterval(() => this.refreshGatewayLanIp(), 30_000);
+
+        // Refresh Tunnel status every 8 s
+        setInterval(() => this.refreshTunnelStatus(), 8000);
     }
 
     /**
@@ -1312,17 +1669,12 @@ class WebControllerApp {
             const resp = await this.fetchGatewayApi('/api/v1/gateway/lan');
             if (resp && resp.ok) {
                 const data = await resp.json();
-
-                // Prefer wireless adapter; fall back to primary LAN IP
-                let ip = data.primaryIp;
-                if (data.adapters && Array.isArray(data.adapters)) {
-                    const wifi = data.adapters.find(a => a.isWireless && a.ipAddress);
-                    if (wifi) ip = wifi.ipAddress;
-                }
+                const ip = data.primaryIp || (data.adapters && data.adapters[0] ? data.adapters[0].ipAddress : null);
 
                 if (ip && ip !== '127.0.0.1') {
-                    // Also update the DOM element so it stays in sync
+                    this.detectedLanIp = ip;
                     if (this.dom.gatewayLanVal) this.dom.gatewayLanVal.textContent = ip;
+                    if (this.dom.sidebarDetectedLanIp) this.dom.sidebarDetectedLanIp.textContent = ip;
                     this.applyGatewayUrl(`http://${ip}:5293`);
                     return;
                 }
@@ -1331,41 +1683,66 @@ class WebControllerApp {
             console.warn('[Gateway] LAN IP fetch failed:', err.message);
         }
 
-        // Backend unreachable — use whatever is in the DOM (may be stale)
-        const fallbackIp = this.dom.gatewayLanVal?.textContent?.trim();
-        if (fallbackIp && fallbackIp !== '192.168.1.1' && fallbackIp !== '127.0.0.1') {
+        // Backend unreachable — use cached or whatever was detected
+        const fallbackIp = this.detectedLanIp || this.dom.gatewayLanVal?.textContent?.trim();
+        if (fallbackIp && fallbackIp !== 'Detecting...' && fallbackIp !== '192.168.1.1' && fallbackIp !== '127.0.0.1') {
             this.applyGatewayUrl(`http://${fallbackIp}:5293`);
         } else {
-            this.showToast('Could not detect LAN IP. Backend may be offline.', 'error');
+            this.showToast('Could not detect active LAN/Wi-Fi IP. Please check network connection.', 'error');
         }
     }
 
     /**
-     * Calls GET /api/v1/gateway/lan and sets the gateway-lan-val element to the
-     * real primary LAN IP so the Wi-Fi chip switches to the correct address.
+     * Calls GET /api/v1/gateway/lan and populates all LAN IP displays throughout the UI.
      */
     async refreshGatewayLanIp() {
         try {
             const resp = await this.fetchGatewayApi('/api/v1/gateway/lan');
-            if (!resp) return;
+            if (!resp || !resp.ok) return;
             const data = await resp.json();
 
-            // Update the LAN chip value shown in the UI
-            if (data.primaryIp && this.dom.gatewayLanVal) {
-                this.dom.gatewayLanVal.textContent = data.primaryIp;
-            }
-
-            // If a wireless adapter exists, prefer that for the Wi-Fi chip
-            if (data.adapters && Array.isArray(data.adapters)) {
-                const wifi = data.adapters.find(a => a.isWireless);
-                if (wifi && wifi.ipAddress && this.dom.gatewayLanVal) {
-                    this.dom.gatewayLanVal.textContent = wifi.ipAddress;
+            if (data.primaryIp) {
+                this.detectedLanIp = data.primaryIp;
+                if (this.dom.gatewayLanVal) {
+                    this.dom.gatewayLanVal.textContent = data.primaryIp;
+                }
+                if (this.dom.sidebarDetectedLanIp) {
+                    this.dom.sidebarDetectedLanIp.textContent = data.primaryIp;
+                    this.dom.sidebarDetectedLanIp.title = `Click to connect via http://${data.primaryIp}:5293`;
+                }
+                if (this.dom.sidebarChipWifi) {
+                    this.dom.sidebarChipWifi.title = `Switch to Local Wi-Fi / LAN (${data.primaryIp}:5293)`;
                 }
             }
 
-            // Log Tailscale detection for diagnostics
             if (data.tailscaleIp) {
-                console.log('[Gateway] Tailscale IP detected:', data.tailscaleIp);
+                this.activeTailscaleIp = data.tailscaleIp;
+                this.activeTailscaleUrl = `http://${data.tailscaleIp}:5293`;
+                if (this.dom.gatewayTailscaleVal) {
+                    this.dom.gatewayTailscaleVal.textContent = `${data.tailscaleIp} (Online)`;
+                    this.dom.gatewayTailscaleVal.className = 'stat-val good';
+                }
+                if (this.dom.sidebarDetectedTailscaleStatus) {
+                    this.dom.sidebarDetectedTailscaleStatus.textContent = `${data.tailscaleIp}`;
+                    this.dom.sidebarDetectedTailscaleStatus.className = 'net-detail-val good';
+                    this.dom.sidebarDetectedTailscaleStatus.title = `Click to connect via Tailscale: http://${data.tailscaleIp}:5293`;
+                }
+                if (this.dom.btnSidebarCopyTailscale) {
+                    this.dom.btnSidebarCopyTailscale.style.display = 'inline-block';
+                }
+                if (this.dom.tailscaleLiveBadge) {
+                    this.dom.tailscaleLiveBadge.textContent = `ONLINE (${data.tailscaleIp})`;
+                    this.dom.tailscaleLiveBadge.className = 'tunnel-status-badge active';
+                }
+                if (this.dom.tailscaleActiveRow) {
+                    this.dom.tailscaleActiveRow.style.display = 'flex';
+                }
+                if (this.dom.tailscaleActiveUrl) {
+                    this.dom.tailscaleActiveUrl.textContent = this.activeTailscaleUrl;
+                }
+                if (this.dom.tsInstSampleUrl) {
+                    this.dom.tsInstSampleUrl.textContent = this.activeTailscaleUrl;
+                }
             }
         } catch (err) {
             console.warn('[Gateway] LAN IP discovery failed:', err.message);
@@ -1900,12 +2277,28 @@ class WebControllerApp {
             this.dom.wizardCode.textContent = invCode;
             this.dom.wizardPin.textContent = data.shortPin || data.ShortPin || (invCode.includes('-') ? invCode.split('-').pop() : '1234');
 
-            const cmd = `powershell -ExecutionPolicy Bypass -Command "& .\\EnterpriseRemote.Host.Service.exe --enroll ${invCode} --server ${this.serverUrl}"`;
+            // If local controller is currently on localhost, Remote PC cannot reach 127.0.0.1!
+            // Auto-substitute the active public tunnel URL or primary LAN IP for the remote device!
+            let enrollServer = this.serverUrl;
+            if (enrollServer.includes('127.0.0.1') || enrollServer.includes('localhost')) {
+                if (this.activeTailscaleUrl) {
+                    enrollServer = this.activeTailscaleUrl;
+                } else if (this.activeTunnelUrl) {
+                    enrollServer = this.activeTunnelUrl;
+                } else if (this.detectedLanIp && this.detectedLanIp !== '127.0.0.1') {
+                    enrollServer = `http://${this.detectedLanIp}:5293`;
+                }
+            }
+
+            const cmd = `powershell -ExecutionPolicy Bypass -Command "& .\\EnterpriseRemote.Host.Service.exe --enroll ${invCode} --server ${enrollServer}"`;
             this.dom.wizardCmd.value = cmd;
         } catch (err) {
             this.dom.wizardCode.textContent = 'INV-AUTO-PAIR';
             this.dom.wizardPin.textContent = '1234';
-            this.dom.wizardCmd.value = `.\\EnterpriseRemote.Host.Service.exe --enroll 1234 --server ${this.serverUrl}`;
+            const fallbackServer = (this.detectedLanIp && this.detectedLanIp !== '127.0.0.1')
+                ? `http://${this.detectedLanIp}:5293`
+                : this.serverUrl;
+            this.dom.wizardCmd.value = `.\\EnterpriseRemote.Host.Service.exe --enroll 1234 --server ${fallbackServer}`;
         }
     }
 
@@ -2036,11 +2429,11 @@ class WebControllerApp {
             const isTunnel = window.location.hostname.includes('trycloudflare.com') ||
                              window.location.hostname.includes('cloudflare');
             if (isTunnel) {
-                this.applyProfile(40, 50, 720, 'WAN Turbo Profile');
-                this.updateProfileButtons(this.dom.profileWan);
+                this.applyProfile(120, 55, 720, 'Cloudflare Ultra Profile (120 FPS, 720p)');
+                this.updateProfileButtons(this.dom.profile120);
             } else {
-                this.applyProfile(60, 65, 1080, 'Direct LAN Profile');
-                this.updateProfileButtons(this.dom.profileLan);
+                this.applyProfile(120, 65, 1080, 'High-Speed LAN Profile (120 FPS, 1080p)');
+                this.updateProfileButtons(this.dom.profile120);
             }
 
             this.dom.btnDisconnect.disabled = false;

@@ -8,21 +8,18 @@ using EnterpriseRemote.Host.UserAgent.Capture;
 using EnterpriseRemote.Host.UserAgent.Input;
 using EnterpriseRemote.Host.UserAgent.Ipc;
 using EnterpriseRemote.Host.UserAgent.Tray;
-
 namespace EnterpriseRemote.Host.UserAgent;
-
 public static class Program
 {
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
     private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
-
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool FreeConsole();
-
     [STAThread]
     public static async Task<int> Main(string[] args)
     {
+        await Task.Yield();
         try
         {
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -40,13 +37,11 @@ public static class Program
             };
         }
         catch { }
-
         try
         {
             SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         catch { }
-
         // Detach from console window completely unless explicit debug flag is passed (prevents taskbar icon)
         bool keepConsole = false;
         for (int i = 0; i < args.Length; i++)
@@ -61,11 +56,9 @@ public static class Program
         {
             try { FreeConsole(); } catch { }
         }
-
         string? serverUrl = null;
         string? deviceId = null;
         int sessionId = 1;
-
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i].Equals("--session", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
@@ -81,7 +74,6 @@ public static class Program
                 deviceId = args[i + 1];
             }
         }
-
         // Auto-discover identity if not provided via command line
         if (string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(serverUrl))
         {
@@ -92,9 +84,7 @@ public static class Program
                 serverUrl ??= ident.ControlPlaneUrl;
             }
         }
-
         Console.WriteLine($"[*] Initializing User Session Agent for Session ID: {sessionId}...");
-
         // 1. Initialize Screen Capture Engine
         using var capturer = new DxgiDesktopDuplicator();
         bool captureInit = capturer.Initialize();
@@ -107,14 +97,11 @@ public static class Program
         {
             Console.WriteLine("[!] Screen capture initialization deferred or unavailable (headless).");
         }
-
         // 2. Initialize Input Injection Engine
         var inputEngine = new InputInjectionEngine(capturer.Display);
         Console.WriteLine("[+] Input Injection Engine bounds-checked and active.");
-
         // 3. Initialize Window Affinity Manager for anti-capture neutralization
         var affinityManager = new WindowAffinityManager();
-
         // 4. Initialize Live WebSocket Desktop Streamer
         EnterpriseRemote.Host.UserAgent.Streaming.DesktopStreamingService? streamer = null;
         if (!string.IsNullOrEmpty(serverUrl) && !string.IsNullOrEmpty(deviceId))
@@ -123,9 +110,7 @@ public static class Program
             streamer = new EnterpriseRemote.Host.UserAgent.Streaming.DesktopStreamingService(serverUrl, deviceId, capturer, inputEngine, affinityManager);
             streamer.Start();
         }
-
         var cts = new CancellationTokenSource();
-
         // 4. Initialize Tray Indicator in Windows Notification Area (System Tray)
         var tray = new SessionTrayIndicator(deviceId);
         tray.OnLocalEmergencyDisconnectRequested += () =>
@@ -137,87 +122,99 @@ public static class Program
             cts.Cancel();
             try { Application.Exit(); } catch { }
         };
-
-        // 5. Connect to Session 0 Named Pipe
-        Console.WriteLine($"[*] Connecting to Session 0 Host Service IPC (\\.\\pipe\\EnterpriseRemote_IPC_{sessionId})...");
+        // 5. Connect to Session 0 Named Pipe with resilient background auto-reconnect watchdog
+        Console.WriteLine($"[*] Initializing Session 0 Host Service IPC watchdog (\\.\\pipe\\EnterpriseRemote_IPC_{sessionId})...");
         using var pipeClient = new NamedPipeIpcClient(sessionId);
-
         Console.CancelKeyPress += (_, e) =>
         {
             e.Cancel = true;
             cts.Cancel();
             Console.WriteLine("\n[*] Shutting down User Agent cleanly...");
         };
-
-        bool connected = await pipeClient.ConnectAsync(timeoutMilliseconds: 3000, cts.Token);
-        if (connected)
+        // Bind fallbacks so elevated clicks and anti-affinity routing work whenever the pipe is connected
+        inputEngine.SetElevatedFallback(payload =>
         {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("[+] Connected to Session 0 Host Service via Authenticated Named Pipe.");
-            Console.WriteLine("[+] Ephemeral HMAC-SHA256 handshake established.");
-            Console.WriteLine("[+] Dual-Route UIPI Input Bypass active: elevated windows routed via SYSTEM service.");
-            Console.ResetColor();
-
-            inputEngine.SetElevatedFallback(payload =>
+            if (pipeClient.IsConnected)
             {
-                if (pipeClient.IsConnected)
+                var frame = new IpcFrame
                 {
-                    var frame = new IpcFrame
-                    {
-                        MessageType = IpcMessageType.InjectInputElevated,
-                        SequenceNumber = 0,
-                        Payload = payload
-                    };
-                    _ = pipeClient.SendFrameAsync(frame);
-                }
-            });
-
-            affinityManager.RequestElevatedNeutralization = (hWnd, pid) =>
-            {
-                if (pipeClient.IsConnected)
-                {
-                    byte[] payload = new byte[12];
-                    BitConverter.TryWriteBytes(payload.AsSpan(0, 8), hWnd.ToInt64());
-                    BitConverter.TryWriteBytes(payload.AsSpan(8, 4), pid);
-                    var frame = new IpcFrame
-                    {
-                        MessageType = IpcMessageType.NeutralizeAffinity,
-                        SequenceNumber = 0,
-                        Payload = payload
-                    };
-                    _ = pipeClient.SendFrameAsync(frame);
-                }
-            };
-
-            pipeClient.OnMessageReceived += frame =>
-            {
-                if (frame.MessageType == IpcMessageType.PromptConsent)
-                {
-                    string opName = System.Text.Encoding.UTF8.GetString(frame.Payload);
-                    bool approved = tray.PromptLocalConsent(opName, "Remote Desktop Assistance");
-                    var respFrame = new IpcFrame
-                    {
-                        MessageType = IpcMessageType.ConsentResult,
-                        SequenceNumber = frame.SequenceNumber + 1,
-                        Payload = System.Text.Encoding.UTF8.GetBytes(approved ? "Approved" : "Denied")
-                    };
-                    _ = pipeClient.SendFrameAsync(respFrame);
-                }
-                else if (frame.MessageType == IpcMessageType.TerminateSession)
-                {
-                    tray.CloseActiveSession();
-                }
-            };
-        }
-        else
+                    MessageType = IpcMessageType.InjectInputElevated,
+                    SequenceNumber = 0,
+                    Payload = payload
+                };
+                _ = pipeClient.SendFrameAsync(frame);
+            }
+        });
+        affinityManager.RequestElevatedNeutralization = (hWnd, pid) =>
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("[!] Host Service pipe not connected (Service may be starting or inactive). Running in standalone interactive mode.");
-            Console.ResetColor();
-        }
-
+            if (pipeClient.IsConnected)
+            {
+                byte[] payload = new byte[12];
+                BitConverter.TryWriteBytes(payload.AsSpan(0, 8), hWnd.ToInt64());
+                BitConverter.TryWriteBytes(payload.AsSpan(8, 4), pid);
+                var frame = new IpcFrame
+                {
+                    MessageType = IpcMessageType.NeutralizeAffinity,
+                    SequenceNumber = 0,
+                    Payload = payload
+                };
+                _ = pipeClient.SendFrameAsync(frame);
+            }
+        };
+        pipeClient.OnMessageReceived += frame =>
+        {
+            if (frame.MessageType == IpcMessageType.PromptConsent)
+            {
+                string opName = System.Text.Encoding.UTF8.GetString(frame.Payload);
+                bool approved = tray.PromptLocalConsent(opName, "Remote Desktop Assistance");
+                var respFrame = new IpcFrame
+                {
+                    MessageType = IpcMessageType.ConsentResult,
+                    SequenceNumber = frame.SequenceNumber + 1,
+                    Payload = System.Text.Encoding.UTF8.GetBytes(approved ? "Approved" : "Denied")
+                };
+                _ = pipeClient.SendFrameAsync(respFrame);
+            }
+            else if (frame.MessageType == IpcMessageType.TerminateSession)
+            {
+                tray.CloseActiveSession();
+            }
+        };
+        // Resilient background reconnection loop
+        _ = Task.Run(async () =>
+        {
+            bool hasLoggedConnected = false;
+            while (!cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    if (!pipeClient.IsConnected)
+                    {
+                        bool ok = await pipeClient.ConnectAsync(timeoutMilliseconds: 2000, cts.Token);
+                        if (ok && !hasLoggedConnected)
+                        {
+                            hasLoggedConnected = true;
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine("[+] Connected to Session 0 Host Service via Authenticated Named Pipe.");
+                            Console.WriteLine("[+] Ephemeral HMAC-SHA256 handshake established.");
+                            Console.WriteLine("[+] Dual-Route UIPI Input Bypass active: elevated windows routed via SYSTEM service.");
+                            Console.ResetColor();
+                        }
+                    }
+                }
+                catch { }
+                try
+                {
+                    await Task.Delay(2000, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }, cts.Token);
+        
         Console.WriteLine("[+] User Agent ready and running in hidden system tray.");
-
         // Keep running until canceled or test completes
         if (args.Length > 0 && args[0].Equals("--oneshot", StringComparison.OrdinalIgnoreCase))
         {
@@ -225,21 +222,17 @@ public static class Program
             tray.Dispose();
             return 0;
         }
-
         // Run Windows message loop for the background system tray icon (no taskbar window)
         Application.ApplicationExit += (_, _) =>
         {
             cts.Cancel();
         };
-
         Application.Run();
-
         streamer?.Dispose();
         tray.CloseActiveSession();
         tray.Dispose();
         return 0;
     }
-
     private static LocalDeviceIdentity? LoadLocalIdentity()
     {
         string[] candidates = new[]
@@ -248,7 +241,6 @@ public static class Program
             System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "EnterpriseRemote", "device_identity.json"),
             System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "device_identity.json")
         };
-
         foreach (var path in candidates)
         {
             if (System.IO.File.Exists(path))
@@ -265,7 +257,6 @@ public static class Program
         }
         return null;
     }
-
     private sealed class LocalDeviceIdentity
     {
         public string DeviceId { get; set; } = string.Empty;

@@ -4,6 +4,7 @@ namespace EnterpriseRemote.Host.UserAgent.Video;
 
 public enum QualityProfile
 {
+    UltraHighFramerate,
     UltraLowLatency,
     Balanced,
     HighDefinitionText,
@@ -75,5 +76,29 @@ public sealed class AdaptiveQualityEngine
         int intervalMs = Math.Max(10, 1000 / targetFps);
         CurrentParameters = new VideoEncodingParameters(targetFps, targetBitrate, intervalMs, profile);
         return CurrentParameters;
+    }
+
+    /// <summary>
+    /// Calculates dynamic JPEG quality based on real-time socket transmission duration to prevent Cloudflare bufferbloat.
+    /// </summary>
+    public int CalculateDynamicQuality(int targetQualityCeiling, long lastSendDurationMs, int frameIntervalMs)
+    {
+        if (lastSendDurationMs <= 0) return targetQualityCeiling;
+
+        // If send took longer than the frame interval, the socket is buffering. Drop quality to shrink payload immediately.
+        if (lastSendDurationMs > frameIntervalMs * 1.5f)
+        {
+            // Heavy network congestion or slow uplink: drop quality down to 25% minimum
+            int penalty = (int)((lastSendDurationMs - frameIntervalMs) / 3);
+            return Math.Max(25, targetQualityCeiling - penalty);
+        }
+        else if (lastSendDurationMs > frameIntervalMs)
+        {
+            // Mild congestion: throttle back 10-15%
+            return Math.Max(30, targetQualityCeiling - 10);
+        }
+
+        // Network is clean, use full ceiling
+        return targetQualityCeiling;
     }
 }

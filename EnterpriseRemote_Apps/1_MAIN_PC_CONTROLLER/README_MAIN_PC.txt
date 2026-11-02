@@ -18,7 +18,10 @@
   ───────────────
   START_MAIN_PC.vbs                 ← 1-click silent launcher (preferred)
   START_MAIN_PC.bat                 ← Batch launcher (exits immediately)
+  START_TAILSCALE_MODE.bat          ← 1-click Tailscale low-latency WAN mode (WireGuard UDP)
+  START_TAILSCALE_MODE.vbs          ← Silent Tailscale mode launcher
   START_PUBLIC_INTERNET_TUNNEL.bat  ← 1-click Cloudflare tunnel for Internet access
+  start_tailscale_tunnel.ps1        ← Tailscale status checker & IP display helper
   ADMIN_ACCOUNTS.txt                ← Pre-seeded admin directory & login reference
   start_tunnel.ps1                  ← Edge tunnel PowerShell automation engine
   README_MAIN_PC.txt                ← This file

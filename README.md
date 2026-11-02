@@ -1,6 +1,6 @@
 # Streamy — Secure Enterprise Remote Desktop & Ultra-Low Latency Streaming Platform
 
-[![Release](https://img.shields.io/badge/release-Streamy%20V1.0.1-blue.svg)](https://github.com/Sujal5683/streamy/releases)
+[![Release](https://img.shields.io/badge/release-Streamy%20V1.0.2-blue.svg)](https://github.com/Sujal5683/streamy/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20(x64)-brightgreen.svg)]()
 [![Runtime](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)]()
@@ -11,14 +11,14 @@
 
 ## 🚀 Key Features
 
-* **⚡ Ultra-Low Latency Engine:** Hardware-accelerated Desktop Duplication API (DXGI) with optimized GDI fallback, multi-threaded sub-millisecond pixel conversion, zero-bufferbloat frame pacing, and raw WebSocket/DTLS streaming delivering **15–30 ms glass-to-glass LAN latency**.
+* **⚡ Ultra-Low Latency Engine:** Hardware-accelerated Desktop Duplication API (DXGI) with optimized GDI fallback, multi-threaded sub-millisecond SIMD fractional pixel scaling, single-flight zero-bufferbloat transmission gating, uncapped 100–144–200 FPS high-refresh streaming, and raw WebSocket/QUIC streaming delivering **15–30 ms glass-to-glass LAN latency** and silky-smooth remote control over Cloudflare edge tunnels.
 * **🛡️ Session 0 Windows Service & 24/7 Access:** Runs as a dedicated background service (`EnterpriseRemote.Host.Service`) capable of handling Windows lock screens, UAC security prompts, and user logon/logoff transitions automatically.
 * **👁️ Protected Window & Exam Affinity Stripping:** Dynamic desktop switch management and window affinity decoupling (`SetWindowDisplayAffinity` stripping) ensures reliable streaming even under exam software, secure browsers, or DRM-protected windows.
 * **🔒 Military-Grade Cryptography & Zero-Trust Pairing:** Mutual challenge-response enrollment, Ed25519/ECDSA device identity certificates, AES-256-GCM session payload encryption, and strict role-based access control (RBAC).
 * **🌐 Universal Network Traversal:**
   * **LAN Direct Mode:** Automatic multicast UDP beacon discovery and port `5293` direct streaming.
+  * **Cloudflare Edge Tunnel (QUIC Optimized):** 1-Click zero-port-forwarding public access via Cloudflare Edge network with `--protocol auto`, zero buffer bloat, and automatic bitrate (ABR) adaptation.
   * **Tailscale Mesh VPN:** Zero-configuration secure private mesh networking across different physical networks.
-  * **Cloudflare Edge Tunnel:** 1-Click zero-port-forwarding public access via Cloudflare Edge network.
 * **🖥️ Dual Controller Interfaces:**
   * **WPF Desktop Controller:** High-framerate, dark-cybersecurity themed desktop operator console with multi-monitor switching, latency HUD, clipboard synchronization, and hardware input injection.
   * **Web Controller:** Browser-based control plane (`EnterpriseRemote.ControlPlane`) with real-time WebRTC/WebSocket client streaming.
@@ -55,7 +55,7 @@ streamy/
 │   └── EnterpriseRemote.Host.UserAgent/# Desktop duplication, input injection & capture
 │
 ├── tests/                              # Benchmark & Comprehensive Unit Test Suites
-│   ├── EnterpriseRemote.UnitTests/     # 100+ unit & integration tests
+│   ├── EnterpriseRemote.UnitTests/     # 122 unit & integration tests (100% passing)
 │   └── EnterpriseRemote.Benchmarks/    # Latency & throughput benchmarking suite
 │
 ├── scripts/                            # Operational, release & automation scripts

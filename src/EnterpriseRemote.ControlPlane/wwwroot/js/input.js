@@ -68,6 +68,11 @@ export class InputHandler {
     /**
      * Converts DOM MouseEvent coordinates to normalized [0.0 - 1.0] remote screen coordinates
      */
+    /**
+     * Converts DOM MouseEvent coordinates to normalized [0.0 - 1.0] remote screen coordinates.
+     * Features edge-clamping and boundary tolerance so clicks near corners/borders
+     * (e.g. Windows Start Menu, Taskbar, Close button) never get dropped by letterboxing.
+     */
     getNormalizedCoordinates(e) {
         let rect = this.streamClient.renderRect;
         const canvasRect = this.canvas.getBoundingClientRect();
@@ -86,8 +91,10 @@ export class InputHandler {
             rect = { x: 0, y: 0, width: this.canvas.width, height: this.canvas.height };
         }
 
-        const inside = canvasX >= rect.x && canvasX <= rect.x + rect.width &&
-                       canvasY >= rect.y && canvasY <= rect.y + rect.height;
+        // Generous margin tolerance (30px) around render rect to ensure corner clicks (Start button, close icon) fire
+        const margin = 30;
+        const inside = canvasX >= (rect.x - margin) && canvasX <= (rect.x + rect.width + margin) &&
+                       canvasY >= (rect.y - margin) && canvasY <= (rect.y + rect.height + margin);
 
         const normX = Math.min(1.0, Math.max(0.0, (canvasX - rect.x) / Math.max(1, rect.width)));
         const normY = Math.min(1.0, Math.max(0.0, (canvasY - rect.y) / Math.max(1, rect.height)));
@@ -131,8 +138,9 @@ export class InputHandler {
             this.streamClient.sendPacket(packet);
         });
 
-        // Mouse Down
+        // Mouse Down with preventDefault to eliminate text-selection interference and pointer capture
         c.addEventListener('mousedown', (e) => {
+            e.preventDefault();
             c.focus();
             if (!this.inputEnabled || !this.streamClient.isConnected) return;
 
@@ -140,6 +148,7 @@ export class InputHandler {
             if (!inside) return;
 
             this.isMouseDown = true;
+            try { c.setPointerCapture?.(e.pointerId); } catch { }
             this.lastNormX = normX;
             this.lastNormY = normY;
 
@@ -154,6 +163,7 @@ export class InputHandler {
         window.addEventListener('mouseup', (e) => {
             if (!this.isMouseDown) return;
             this.isMouseDown = false;
+            try { c.releasePointerCapture?.(e.pointerId); } catch { }
 
             if (!this.inputEnabled || !this.streamClient.isConnected) return;
 

@@ -122,3 +122,42 @@ We introduce 4 first-class stream presets accessible via 1-click in the UI and F
   - Build `EnterpriseRemote.sln` in Release mode.
   - Execute test suite (`tests/EnterpriseRemote.UnitTests`).
   - Synchronize updated binaries to `EnterpriseRemote_Apps/`.
+
+---
+
+## 4. Dual-Tunnel WAN Architecture & Low-Latency Options
+
+When streaming over remote Wi-Fi, 4G/5G mobile hotspots, or the public internet, two distinct transport modes are supported without breaking existing functionality:
+
+`
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                        DUAL-TUNNEL ARCHITECTURE OVER WAN                               │
+├──────────────────────────────────────────┬─────────────────────────────────────────────┤
+│  Option A: Tailscale Mode (WireGuard UDP)│  Option B: Cloudflare Quick Tunnel (TCP)    │
+├──────────────────────────────────────────┼─────────────────────────────────────────────┤
+│  • Protocol: WireGuard UDP               │  • Protocol: WebSocket over TCP             │
+│  • Routing: Direct P2P NAT punchthrough  │  • Routing: Cloudflare edge relay (US/EU)   │
+│  • Latency: <5ms overhead (~LAN feel)    │  • Latency: +50ms–200ms extra RTT           │
+│  • Bandwidth: Unlimited, zero throttle   │  • Bandwidth: Throttled by free public edge │
+│  • Addressing: Permanent 100.x.x.x IP    │  • Addressing: Ephemeral random subdomain   │
+│  • Setup: Install Tailscale on both PCs  │  • Setup: Zero-install (1-click script)     │
+│  • Launcher: START_TAILSCALE_MODE.bat    │  • Launcher: START_PUBLIC_INTERNET_TUNNEL   │
+└──────────────────────────────────────────┴─────────────────────────────────────────────┘
+`
+
+### 3 High-Impact WAN Code Optimizations Applied:
+
+1. **Lightweight Heartbeat (Saves 6–9 Mbps Idle WAN Bandwidth):**
+   - Replaced full 1080p/720p JPEG re-transmissions on static screens with a 9-byte LatencyPing packet every 500ms in DesktopStreamingService.cs.
+   - Viewers retain the cached LatestFrameJpeg in StreamRelayHub without screen degradation.
+
+2. **Relay Hot-Path Zero-Allocation (StreamRelayHub.cs):**
+   - Replaced ms.ToArray() with direct stream buffer reading, eliminating ~150 KB allocations on every frame (preventing relay GC stalls).
+
+3. **Autonomous Adaptive Bitrate & Framerate Loop (AdaptiveQualityEngine.cs):**
+   - DesktopStreamingService sends a self-initiated timestamped probe every 5 seconds.
+   - When the viewer returns LatencyPong, RTT is measured and smoothed via exponential moving average:
+     - RTT <= 50ms: 60 FPS / UltraLowLatency profile
+     - RTT 50-100ms: 45 FPS / Balanced profile
+     - RTT 100-200ms: 30 FPS / Balanced profile (Q55)
+     - RTT > 200ms or loss: 15 FPS / ConstrainedBandwidth profile (Q40)

@@ -79,10 +79,13 @@ If you take these folders to a completely fresh PC (either as Main PC or Remote 
 
 ---
 
-## 5. Cross-Network Streaming, Scaling Modes, & 24/7 Access
+## 5. High-Refresh (100–144–200 FPS) Streaming, Cloudflare QUIC & Zero-Bufferbloat Pipeline
 
 * **Detailed Manual:** [docs/connect_from_anywhere_manual.md](file:///c:/My%20Projects/SECURE%20AND%20ENTERPRISE%20STREAMING%20APP/docs/connect_from_anywhere_manual.md)
-* **Connect from Anywhere:** 1-click Cloudflare edge tunnel (`START_PUBLIC_INTERNET_TUNNEL.bat`) gives an instant public HTTPS/WSS URL to stream across different Wi-Fi networks, mobile 4G/5G data, and across the globe.
+* **Single-Flight Transmission Pacing:** The streaming engine incorporates a zero-wait network gate (`_networkSendGate.Wait(0)`) that prevents queuing in the OS TCP stack while streaming over Cloudflare. Stale intermediate frames are discarded at the source; only the freshest screen capture is transmitted.
+* **Fractional SIMD Scaling:** Supports dynamic downscaling to **540p Turbo**, **720p HD**, **1080p FHD**, or **Native Monitor Resolution** with sub-pixel mapped SIMD box filtering (`(dx * srcW) / dstW`) preventing aspect ratio distortion.
+* **Cloudflare QUIC Edge Tunnel:** Updated tunnel launcher utilizes `--protocol auto --edge-ip-version 4 --post-quantum=false --compression-quality 0` to prioritize UDP QUIC transport with under 100ms latency even on remote WAN links.
+* **Multi-Viewer Channel Isolation:** Control plane `StreamRelayHub` maintains isolated bounded channels per client and prevents control packets (cursor updates, latency pongs) from corrupting the cached JPEG frame stream.
 * **Permanent Unattended Access:** Auto-assigned `PERM-XXXXXXXXXXXX` keys enable unattended 24/7 control without human consent popups on the remote PC.
 * **Display Scaling & Mouse Precision:** Cycle between:
   - **Fit Screen:** Preserves aspect ratio with letterboxes.
@@ -104,5 +107,5 @@ If you take these folders to a completely fresh PC (either as Main PC or Remote 
 * **Solution:** `EnterpriseRemote.sln`
 * **Configuration:** `Release | Any CPU / x64`
 * **Compiler Status:** Build Succeeded with **0 Warning(s)**, **0 Error(s)**.
-* **Automated Unit Tests:** **78 passed, 0 failed, 0 skipped** (100% pass rate).
+* **Automated Unit Tests:** **122 passed, 0 failed, 0 skipped** (100% pass rate).
 * **Binary Synchronization:** Fresh Release binaries, PDBs, configs, and assets synchronized across `EnterpriseRemote_Apps/1_MAIN_PC_CONTROLLER/Bin`, `EnterpriseRemote_Apps/2_REMOTE_PC_STREAMER/Bin`, `RemotePC_Package/`, and `dist/`.

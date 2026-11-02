@@ -4,8 +4,9 @@
 ' Double-click this .vbs file to start EVERYTHING with ZERO console windows.
 '
 ' What this does:
-'   1. Silently starts the Control Plane background API server (port 5293)
-'   2. Launches the Operator Controller GUI (modern dark theme UI)
+'   1. Cleans up any stale background processes to ensure fresh code and UI
+'   2. Silently starts the Control Plane background API server (port 5293)
+'   3. Launches the Operator Controller GUI (modern dark theme UI)
 '
 ' The Control Plane runs as a hidden background process.
 ' The Controller GUI appears in your taskbar.
@@ -16,6 +17,13 @@ Set fso      = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 binDir    = scriptDir & "\Bin"
+
+' ── Terminate any stale existing instances to guarantee fresh code & UI ───────
+On Error Resume Next
+WshShell.Run "taskkill /F /IM EnterpriseRemote.Controller.exe /T", 0, True
+WshShell.Run "taskkill /F /IM EnterpriseRemote.ControlPlane.exe /T", 0, True
+On Error GoTo 0
+WScript.Sleep 500
 
 ' ── Start the Control Plane (ASP.NET API backend) silently ──────────────────
 ' Run = 0 means completely hidden window, False means don't wait

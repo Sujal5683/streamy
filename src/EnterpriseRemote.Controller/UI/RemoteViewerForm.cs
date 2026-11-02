@@ -150,6 +150,16 @@ public sealed class RemoteViewerForm : Form
                 ToggleFullScreen();
                 e.Handled = true;
             }
+            else if (e.KeyCode == Keys.F5 || (e.Control && e.KeyCode == Keys.R))
+            {
+                _webView.CoreWebView2?.Reload();
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.F12)
+            {
+                _webView.CoreWebView2?.OpenDevToolsWindow();
+                e.Handled = true;
+            }
         };
     }
 
@@ -254,18 +264,27 @@ public sealed class RemoteViewerForm : Form
 
             // Catch navigation issues & auto-retry if port 5293 takes a moment to bind
             int retryCount = 0;
+            string freshUrl = $"{TargetServerUrl}/?v={DateTime.UtcNow.Ticks}";
             _webView.NavigationCompleted += async (_, e) =>
             {
                 if (!e.IsSuccess && retryCount < 10)
                 {
                     retryCount++;
                     await Task.Delay(600);
-                    _webView.CoreWebView2?.Navigate(TargetServerUrl);
+                    _webView.CoreWebView2?.Navigate(freshUrl);
                 }
             };
 
-            // Navigate to the ControlPlane web controller
-            _webView.CoreWebView2.Navigate(TargetServerUrl);
+            // Clear browsing cache so UI edits in wwwroot are always 100% instantly live
+            try
+            {
+                await _webView.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                    CoreWebView2BrowsingDataKinds.DiskCache | CoreWebView2BrowsingDataKinds.CacheStorage);
+            }
+            catch { }
+
+            // Navigate to the ControlPlane web controller with dynamic cache-buster
+            _webView.CoreWebView2.Navigate(freshUrl);
         }
         catch (Exception ex)
         {

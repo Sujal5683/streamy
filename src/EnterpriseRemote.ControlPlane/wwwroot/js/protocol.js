@@ -121,7 +121,7 @@ export function serializeStreamConfig(targetFps, quality, maxHeight = 0, lowLate
 
     view.setUint8(0, InputEventType.StreamConfig);
     view.setUint8(1, Math.min(200, Math.max(10, targetFps)));
-    view.setUint8(2, Math.min(95, Math.max(30, quality)));
+    view.setUint8(2, Math.min(95, Math.max(25, quality)));
     view.setUint16(3, maxHeight, true);
     view.setUint8(5, lowLatencyMode ? 1 : 0);
     view.setBigUint64(6, BigInt(Date.now()), true);

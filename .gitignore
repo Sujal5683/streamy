@@ -6,6 +6,8 @@
 .idea/
 device_identity.json
 public_tunnel_url.txt
+tailscale_ip.txt
+**/tailscale_ip.txt
 *.log
 
 # Distribution archives & large archives (>100MB)

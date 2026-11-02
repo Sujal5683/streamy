@@ -12,7 +12,7 @@
 > 2. **Native Windows Desktop Controller (`EnterpriseRemote.Controller.exe`):**
 >    - Powered by **Microsoft Edge WebView2** (`Microsoft.Web.WebView2` NuGet).
 >    - Defined in: `src/EnterpriseRemote.Controller/UI/RemoteViewerForm.cs`.
->    - Renders the `wwwroot` UI with hardware-accelerated Direct3D GPU pipelines at 60 FPS.
+>    - Renders the `wwwroot` UI with hardware-accelerated Direct3D GPU pipelines supporting uncapped 60 to 200 FPS high-refresh rate displays.
 >    - Features:
 >      - F11 borderless fullscreen toggle and Esc restore.
 >      - System Tray integration with "Open", "Toggle Full Screen", and "Exit".
@@ -27,4 +27,3 @@
 >    - Files in `UI/Components/` and `UI/EnrollRemoteDeviceForm.cs` are legacy artifacts kept only for unit test compatibility.
 >    - **NEVER** add new GDI+ WinForms controls or buttons to `RemoteViewerForm.cs`.
 >    - **ALL UI ENHANCEMENTS MUST BE APPLIED DIRECTLY IN `src/EnterpriseRemote.ControlPlane/wwwroot/`** so that both the Windows Native Desktop App and the Browser Controller stay in 100% lockstep parity.
-

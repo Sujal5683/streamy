@@ -2,15 +2,24 @@
   ENTERPRISE REMOTE ACCESS — REMOTE PC (DESKTOP STREAMER)
 ================================================================================
 
-  QUICK START
-  ───────────
-  ⭐  Double-click:  START_REMOTE_STREAMING.vbs      ← RECOMMENDED (silent tray!)
-  OR  Double-click:  START_REMOTE_STREAMING.bat       ← Alternative batch launcher
-  🛡️  Right-click:   Install_Windows_Service_Admin.bat ← Run as Admin for 24/7 boot-time service
+  QUICK START & WHAT TO RUN WHEN
+  ───────────────────────────────
+  ⭐  Double-click:  START_REMOTE_STREAMING.bat       ← RECOMMENDED (auto-prompts Admin for full UIPI control)
+  OR  Double-click:  START_REMOTE_STREAMING.vbs       ← Silent system tray launcher
+  🛡️  Right-click:   Install_Windows_Service_Admin.bat ← Run as Admin for 24/7 unattended boot-time service
+
+  WHAT TO RUN WHEN & FIREWALL CLARIFICATION:
+  • Remote PC (this PC): Does NOT listen on any port. It only connects OUTBOUND to the Main PC.
+    You do NOT need to open any firewall ports on this Remote PC!
+  • Full Control over Task Manager / Admin apps: Run START_REMOTE_STREAMING.bat (auto-elevates to Admin).
+    This allows synthetic mouse clicks to control Task Manager, elevated Command Prompt, Services,
+    and applications that install low-level hooks or attempt to trap the mouse cursor.
+  • Unattended 24/7 Access: Run Install_Windows_Service_Admin.bat once as Administrator.
 
   First time on this PC?
+    → If using Tailscale WAN: Double-click SETUP_TAILSCALE_REMOTE.bat to verify connection.
     → Double-click 1_CLICK_ENROLL_REMOTE_PC.bat to pair with the Main PC.
-    → Enter your Main PC's IP (LAN) or Cloudflare Tunnel URL (Internet).
+    → Enter your Main PC's IP (LAN), Tailscale IP (100.x.x.x:5293), or Cloudflare URL.
     → Enter the Invitation Code from the Main PC Controller.
 
   Already enrolled? Just double-click START_REMOTE_STREAMING.vbs — that's it!
@@ -22,7 +31,8 @@
   START_REMOTE_STREAMING.vbs       ← 1-click silent launcher (runs in System Tray ONLY)
   START_REMOTE_STREAMING.bat       ← Batch launcher (exits immediately)
   STOP_REMOTE_STREAMING.bat        ← 1-click to stop all streaming processes
-  1_CLICK_ENROLL_REMOTE_PC.bat     ← First-time pairing wizard (LAN IP or Tunnel URL)
+  1_CLICK_ENROLL_REMOTE_PC.bat     ← First-time pairing wizard (LAN IP, Tailscale, or Tunnel URL)
+  SETUP_TAILSCALE_REMOTE.bat       ← Confirms Tailscale connectivity on this Remote PC
   Install_Windows_Service_Admin.bat← Installs Session 0 Windows Service for 24/7 access
   Uninstall_Windows_Service_Admin.bat← Removes the background Windows Service cleanly
   README_REMOTE_PC.txt             ← This file
@@ -65,8 +75,9 @@
 
   TROUBLESHOOTING
   ───────────────
-  • "Cannot connect" → Check both PCs are on the same Wi-Fi / LAN, or use the
-    Cloudflare edge tunnel URL (START_PUBLIC_INTERNET_TUNNEL.bat on Main PC).
+  • "Cannot connect" → Check both PCs are on the same Wi-Fi / LAN, or:
+    - FOR BEST SPEED: Use Tailscale (START_TAILSCALE_MODE.bat on Main PC, use 100.x.x.x:5293)
+    - FOR ZERO SETUP: Use Cloudflare (START_PUBLIC_INTERNET_TUNNEL.bat on Main PC)
   • Invitation code expired → Codes last 2 hours. Generate a new one in Controller.
   • Windows Firewall blocking → Run on MAIN PC (Admin prompt):
       netsh advfirewall firewall add rule name="EnterpriseRemote" ^

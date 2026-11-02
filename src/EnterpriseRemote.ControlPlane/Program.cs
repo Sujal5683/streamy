@@ -12,7 +12,39 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Hosting;
 
-var builder = WebApplication.CreateBuilder(args);
+// Discover the most authoritative wwwroot directory.
+// Prioritize workspace source tree (src/EnterpriseRemote.ControlPlane/wwwroot) if present so UI changes are instantly live across both Browser and Windows Desktop App!
+string[] candidateRoots =
+[
+    Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "src", "EnterpriseRemote.ControlPlane", "wwwroot"),
+    Path.Combine(AppContext.BaseDirectory, "..", "..", "src", "EnterpriseRemote.ControlPlane", "wwwroot"),
+    Path.Combine(AppContext.BaseDirectory, "..", "src", "EnterpriseRemote.ControlPlane", "wwwroot"),
+    Path.Combine(Directory.GetCurrentDirectory(), "src", "EnterpriseRemote.ControlPlane", "wwwroot"),
+    Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+    Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"),
+    Path.Combine(Directory.GetCurrentDirectory(), "EnterpriseRemote_Apps", "1_MAIN_PC_CONTROLLER", "Bin", "wwwroot")
+];
+
+string initialWebRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+string initialContentRoot = AppContext.BaseDirectory;
+
+foreach (var r in candidateRoots)
+{
+    string full = Path.GetFullPath(r);
+    if (Directory.Exists(full) && File.Exists(Path.Combine(full, "index.html")))
+    {
+        initialWebRoot = full;
+        initialContentRoot = Directory.GetParent(full)?.FullName ?? AppContext.BaseDirectory;
+        break;
+    }
+}
+var options = new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = initialContentRoot,
+    WebRootPath = initialWebRoot
+};
+var builder = WebApplication.CreateBuilder(options);
 
 // Ensure default listening URL is http://0.0.0.0:5293 if not explicitly specified via CLI/env
 if (args.All(a => !a.StartsWith("--urls", StringComparison.OrdinalIgnoreCase)) &&
@@ -458,26 +490,43 @@ app.MapGet("/api/v1/gateway/lan", () =>
     });
 });
 
-// 9. Gateway: Tunnel status — checks for an active Cloudflare/bore.pub tunnel URL written to public_tunnel_url.txt
+// 9. Gateway: Tunnel status — checks for an active Cloudflare/bore.pub tunnel and Tailscale P2P WireGuard
 app.MapGet("/api/v1/gateway/tunnel", () =>
 {
-    string? tunnelUrl = LanDiscoveryUtils.TryReadPublicTunnelUrl();
-    bool active = !string.IsNullOrEmpty(tunnelUrl);
+    string? cfTunnelUrl = LanDiscoveryUtils.TryReadPublicTunnelUrl();
+    bool cfActive = !string.IsNullOrEmpty(cfTunnelUrl);
+
+    string? tsIp = LanDiscoveryUtils.GetTailscaleIp();
+    bool tsActive = !string.IsNullOrEmpty(tsIp);
+    string? tsUrl = tsActive ? $"http://{tsIp}:5293" : null;
+
     return Results.Ok(new
     {
-        active,
-        url = tunnelUrl,
-        tailscaleIp = LanDiscoveryUtils.GetTailscaleIp(),
-        tailscaleUrl = LanDiscoveryUtils.GetTailscaleIp() is string tsIp
-            ? $"http://{tsIp}:5293"
-            : null,
-        message = active
-            ? $"Active tunnel: {tunnelUrl}"
-            : "No active Cloudflare tunnel found. Run scripts/start_tunnel.ps1 to start one."
+        active = cfActive || tsActive,
+        url = cfTunnelUrl ?? tsUrl,
+        mode = cfActive ? "cloudflare" : (tsActive ? "tailscale" : "none"),
+        cloudflare = new
+        {
+            active = cfActive,
+            url = cfTunnelUrl,
+            message = cfActive ? $"Active Cloudflare Edge: {cfTunnelUrl}" : "Cloudflare tunnel offline."
+        },
+        tailscale = new
+        {
+            active = tsActive,
+            ip = tsIp,
+            url = tsUrl,
+            message = tsActive ? $"Tailscale P2P Active: {tsUrl}" : "Tailscale not detected or offline."
+        },
+        tailscaleIp = tsIp,
+        tailscaleUrl = tsUrl,
+        message = cfActive
+            ? $"Cloudflare Tunnel Active: {cfTunnelUrl}"
+            : (tsActive ? $"Tailscale WireGuard Active: {tsUrl}" : "No remote tunnels active.")
     });
 });
 
-// 10. Gateway: Start Tunnel — launches cloudflared in a new visible terminal window
+// 10. Gateway: Start Cloudflare Tunnel — launches cloudflared in a new visible terminal window
 app.MapPost("/api/v1/gateway/start-tunnel", () =>
 {
     try
@@ -486,6 +535,8 @@ app.MapPost("/api/v1/gateway/start-tunnel", () =>
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
         string[] candidates =
         [
+            Path.Combine(baseDir, "start_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "start_tunnel.ps1"),
             Path.Combine(baseDir, "scripts", "start_tunnel.ps1"),
             Path.Combine(baseDir, "..", "scripts", "start_tunnel.ps1"),
             Path.Combine(baseDir, "..", "..", "scripts", "start_tunnel.ps1"),
@@ -524,6 +575,66 @@ app.MapPost("/api/v1/gateway/start-tunnel", () =>
     catch (Exception ex)
     {
         return Results.Ok(new { success = false, message = $"Could not launch tunnel terminal: {ex.Message}. Please run scripts/start_tunnel.ps1 manually." });
+    }
+});
+
+// 10B. Gateway: Start Tailscale Setup & Status Helper
+app.MapPost("/api/v1/gateway/start-tailscale", () =>
+{
+    try
+    {
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string[] candidates =
+        [
+            Path.Combine(baseDir, "start_tailscale_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "start_tailscale_tunnel.ps1"),
+            Path.Combine(baseDir, "scripts", "start_tailscale_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "scripts", "start_tailscale_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "..", "scripts", "start_tailscale_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "..", "..", "scripts", "start_tailscale_tunnel.ps1"),
+            Path.Combine(baseDir, "..", "..", "..", "..", "scripts", "start_tailscale_tunnel.ps1"),
+        ];
+
+        string? scriptPath = candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
+        if (scriptPath != null)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-ExecutionPolicy Bypass -File \"{scriptPath}\"",
+                UseShellExecute = true,
+                CreateNoWindow = false,
+                WindowStyle = ProcessWindowStyle.Normal
+            });
+
+            return Results.Ok(new { success = true, message = "Tailscale helper terminal launched! Verifying WireGuard connection..." });
+        }
+
+        string[] batCandidates =
+        [
+            Path.Combine(baseDir, "START_TAILSCALE_MODE.bat"),
+            Path.Combine(baseDir, "..", "START_TAILSCALE_MODE.bat"),
+            Path.Combine(baseDir, "scripts", "Start_Tailscale_Mode.bat"),
+            Path.Combine(baseDir, "..", "scripts", "Start_Tailscale_Mode.bat")
+        ];
+        string? batPath = batCandidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
+        if (batPath != null)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = batPath,
+                UseShellExecute = true,
+                CreateNoWindow = false,
+                WindowStyle = ProcessWindowStyle.Normal
+            });
+            return Results.Ok(new { success = true, message = "Tailscale mode launcher started!" });
+        }
+
+        return Results.Ok(new { success = false, message = "Tailscale helper script not found. Please make sure Tailscale is installed on this PC." });
+    }
+    catch (Exception ex)
+    {
+        return Results.Ok(new { success = false, message = $"Could not launch Tailscale helper: {ex.Message}" });
     }
 });
 
@@ -641,11 +752,19 @@ app.Map("/api/v1/stream/viewer", async (HttpContext ctx) =>
     }
     finally
     {
-        StreamRelayHub.UnregisterViewer(deviceId);
+        StreamRelayHub.UnregisterViewer(deviceId, viewerWs);
     }
 });
 
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html", new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.Append("Cache-Control", "no-cache, no-store, must-revalidate");
+        ctx.Context.Response.Headers.Append("Pragma", "no-cache");
+        ctx.Context.Response.Headers.Append("Expires", "0");
+    }
+});
 
 app.Run();
 

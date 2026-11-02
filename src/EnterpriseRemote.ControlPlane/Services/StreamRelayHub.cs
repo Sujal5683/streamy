@@ -1,26 +1,48 @@
-using System;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 
 namespace EnterpriseRemote.ControlPlane.Services;
 
-public static class StreamRelayHub
+public class ViewerContext
 {
-    private sealed class DeviceStreamSession
+    public WebSocket Socket { get; }
+    public SemaphoreSlim SendLock { get; } = new(1, 1);
+    public Channel<byte[]> FrameChannel { get; }
+    public CancellationTokenSource Cts { get; } = new();
+
+    public ViewerContext(WebSocket socket)
     {
-        public WebSocket? HostSocket;
-        public readonly SemaphoreSlim HostSendLock = new(1, 1);
-        public WebSocket? ViewerSocket;
-        public readonly SemaphoreSlim ViewerSendLock = new(1, 1);
-        public volatile byte[]? LatestFrameJpeg;
-        public Channel<byte[]>? ViewerFrameChannel;
-        public CancellationTokenSource? ViewerCts;
+        Socket = socket;
+        FrameChannel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleWriter = false,
+            SingleReader = true
+        });
     }
 
+    public void CancelAndDispose()
+    {
+        try { Cts.Cancel(); } catch { }
+        try { FrameChannel.Writer.TryComplete(); } catch { }
+        try { Cts.Dispose(); } catch { }
+        try { SendLock.Dispose(); } catch { }
+    }
+}
+
+public class DeviceStreamSession
+{
+    public WebSocket? HostSocket;
+    public readonly SemaphoreSlim HostSendLock = new(1, 1);
+    public readonly ConcurrentDictionary<WebSocket, ViewerContext> Viewers = new();
+    public volatile byte[]? LatestFrameJpeg;
+}
+
+public static class StreamRelayHub
+{
     private static readonly ConcurrentDictionary<string, DeviceStreamSession> _sessions = new();
 
     public static void RegisterHost(string deviceId, WebSocket ws)
@@ -40,30 +62,31 @@ public static class StreamRelayHub
     public static void RegisterViewer(string deviceId, WebSocket ws)
     {
         var session = _sessions.GetOrAdd(deviceId, _ => new DeviceStreamSession());
-        session.ViewerSocket = ws;
-        session.ViewerCts?.Cancel();
-        session.ViewerCts?.Dispose();
-        session.ViewerCts = new CancellationTokenSource();
-        // Bounded capacity of 1 with DropOldest guarantees ZERO bufferbloat and freshest frame delivery
-        session.ViewerFrameChannel = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleWriter = true,
-            SingleReader = true
-        });
+        var context = new ViewerContext(ws);
+        session.Viewers[ws] = context;
     }
 
-    public static void UnregisterViewer(string deviceId)
+    public static void UnregisterViewer(string deviceId, WebSocket? ws = null)
     {
         if (_sessions.TryGetValue(deviceId, out var s))
         {
-            s.ViewerSocket = null;
-            try
+            if (ws != null)
             {
-                s.ViewerCts?.Cancel();
-                s.ViewerFrameChannel?.Writer.TryComplete();
+                if (s.Viewers.TryRemove(ws, out var ctx))
+                {
+                    ctx.CancelAndDispose();
+                }
             }
-            catch { }
+            else
+            {
+                foreach (var kvp in s.Viewers)
+                {
+                    if (s.Viewers.TryRemove(kvp.Key, out var ctx))
+                    {
+                        ctx.CancelAndDispose();
+                    }
+                }
+            }
         }
     }
 
@@ -96,38 +119,55 @@ public static class StreamRelayHub
 
                 if (ms.Length > 0 && _sessions.TryGetValue(deviceId, out var session))
                 {
-                    // Check if message is a Pong or input reverse-packet from Host
-                    if (ms.Length >= 9 && ms.Length <= 32)
+                    byte[] rawMsg = ms.ToArray();
+
+                    // Check if this is a valid JPEG frame (starts with SOI marker 0xFF, 0xD8)
+                    bool isJpegFrame = rawMsg.Length >= 2 && rawMsg[0] == 0xFF && rawMsg[1] == 0xD8;
+
+                    if (isJpegFrame)
                     {
-                        byte[] rawMsg = ms.ToArray();
-                        // If it's a Pong packet (0x41) or control packet, forward directly to Viewer without passing through frame channel
-                        if (rawMsg[0] == 0x41 && session.ViewerSocket?.State == WebSocketState.Open)
+                        session.LatestFrameJpeg = rawMsg;
+
+                        // Broadcast latest frame to all active viewers via their independent bounded channels
+                        foreach (var kvp in session.Viewers)
                         {
-                            await session.ViewerSendLock.WaitAsync();
-                            try
+                            var viewer = kvp.Value;
+                            if (viewer.Socket.State == WebSocketState.Open)
                             {
-                                if (session.ViewerSocket?.State == WebSocketState.Open)
-                                {
-                                    await session.ViewerSocket.SendAsync(new ArraySegment<byte>(rawMsg), WebSocketMessageType.Binary, true, CancellationToken.None);
-                                }
+                                viewer.FrameChannel.Writer.TryWrite(rawMsg);
                             }
-                            catch { }
-                            finally
-                            {
-                                session.ViewerSendLock.Release();
-                            }
-                            continue;
                         }
                     }
-
-                    byte[] frameBytes = ms.ToArray();
-                    session.LatestFrameJpeg = frameBytes;
-
-                    // Instantly forward freshest frame to Viewer via non-blocking single-capacity channel (drops any stale backlog)
-                    var channel = session.ViewerFrameChannel;
-                    if (channel != null && session.ViewerSocket?.State == WebSocketState.Open)
+                    else
                     {
-                        channel.Writer.TryWrite(frameBytes);
+                        // Control / Telemetry packet from host (e.g. 0x41 LatencyPong, 0x25 CursorUpdate, 0x22 DesktopList)
+                        // Deliver directly without touching LatestFrameJpeg or the frame queue
+                        foreach (var kvp in session.Viewers)
+                        {
+                            var viewer = kvp.Value;
+                            if (viewer.Socket.State == WebSocketState.Open)
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        await viewer.SendLock.WaitAsync(viewer.Cts.Token);
+                                        try
+                                        {
+                                            if (viewer.Socket.State == WebSocketState.Open)
+                                            {
+                                                await viewer.Socket.SendAsync(new ArraySegment<byte>(rawMsg), WebSocketMessageType.Binary, true, viewer.Cts.Token);
+                                            }
+                                        }
+                                        finally
+                                        {
+                                            viewer.SendLock.Release();
+                                        }
+                                    }
+                                    catch { }
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -148,13 +188,19 @@ public static class StreamRelayHub
             return;
         }
 
-        var ct = session.ViewerCts?.Token ?? CancellationToken.None;
+        if (!session.Viewers.TryGetValue(viewerWs, out var viewerCtx))
+        {
+            viewerCtx = new ViewerContext(viewerWs);
+            session.Viewers[viewerWs] = viewerCtx;
+        }
+
+        var ct = viewerCtx.Cts.Token;
 
         // 1. Instantly send cached latest frame so viewer never sees a blank screen
         byte[]? cached = session.LatestFrameJpeg;
         if (cached != null && cached.Length > 0 && viewerWs.State == WebSocketState.Open)
         {
-            await session.ViewerSendLock.WaitAsync(ct);
+            await viewerCtx.SendLock.WaitAsync(ct);
             try
             {
                 if (viewerWs.State == WebSocketState.Open)
@@ -165,12 +211,12 @@ public static class StreamRelayHub
             catch { }
             finally
             {
-                session.ViewerSendLock.Release();
+                viewerCtx.SendLock.Release();
             }
         }
 
         // Run frame sender loop and input receiver loop concurrently
-        var sendFramesTask = RunViewerFrameDeliveryLoopAsync(session, viewerWs, ct);
+        var sendFramesTask = RunViewerFrameDeliveryLoopAsync(session, viewerCtx, ct);
         var receiveInputTask = RunViewerInputReceiverLoopAsync(session, viewerWs, ct);
 
         try
@@ -179,14 +225,14 @@ public static class StreamRelayHub
         }
         finally
         {
-            UnregisterViewer(deviceId);
+            UnregisterViewer(deviceId, viewerWs);
         }
     }
 
-    private static async Task RunViewerFrameDeliveryLoopAsync(DeviceStreamSession session, WebSocket viewerWs, CancellationToken ct)
+    private static async Task RunViewerFrameDeliveryLoopAsync(DeviceStreamSession session, ViewerContext viewerCtx, CancellationToken ct)
     {
-        var channel = session.ViewerFrameChannel;
-        if (channel == null) return;
+        var channel = viewerCtx.FrameChannel;
+        var viewerWs = viewerCtx.Socket;
 
         try
         {
@@ -206,7 +252,7 @@ public static class StreamRelayHub
 
                 if (frameToSend != null && viewerWs.State == WebSocketState.Open)
                 {
-                    await session.ViewerSendLock.WaitAsync(ct);
+                    await viewerCtx.SendLock.WaitAsync(ct);
                     try
                     {
                         if (viewerWs.State == WebSocketState.Open)
@@ -225,7 +271,7 @@ public static class StreamRelayHub
                     catch { }
                     finally
                     {
-                        session.ViewerSendLock.Release();
+                        viewerCtx.SendLock.Release();
                     }
                 }
             }
@@ -279,4 +325,3 @@ public static class StreamRelayHub
         catch (Exception) { }
     }
 }
-

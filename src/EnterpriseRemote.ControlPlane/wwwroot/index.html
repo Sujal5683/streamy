@@ -6,7 +6,7 @@
     <meta name="description" content="Enterprise Remote Desktop Web Controller — Ultra-low latency zero-install browser streaming client for Chrome, Microsoft Edge, and Native Desktop.">
     <title>Enterprise Remote Access — Zero-Install Web Controller</title>
     <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300e5ff'><path d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z'/></svg>">
-    <link rel="stylesheet" href="css/app.css?v=20261102_v4">
+    <link rel="stylesheet" href="css/app.css?v=20261103_v2">
     <script>
         if (window.location.protocol === 'file:') {
             document.addEventListener('DOMContentLoaded', function() {
@@ -299,9 +299,11 @@
                 </div>
 
                 <!-- Quality Profiles (Compact Chips) -->
-                <div class="toolbar-pill compact-presets" title="Quality Profile: LAN (60 FPS) / WAN (40 FPS) / 4K Ultra">
-                    <button id="btn-profile-lan" class="toolbar-pill-btn" title="Direct LAN Profile (60 FPS, 1080p)">LAN</button>
-                    <button id="btn-profile-wan" class="toolbar-pill-btn active" title="Optimized WAN Profile (40 FPS, 720p)">WAN</button>
+                <div class="toolbar-pill compact-presets" id="compact-presets" title="Quality Profile: 144 FPS / 120 FPS / LAN (60 FPS) / WAN (40 FPS) / 4K">
+                    <button id="btn-profile-144" class="toolbar-pill-btn" title="Extreme FPS Profile (144 FPS, 1080p)">144</button>
+                    <button id="btn-profile-120" class="toolbar-pill-btn active" title="Cloudflare Ultra Profile (120 FPS, 720p)">120</button>
+                    <button id="btn-profile-lan" class="toolbar-pill-btn" title="Direct LAN Profile (60 FPS, 1080p)">60</button>
+                    <button id="btn-profile-wan" class="toolbar-pill-btn" title="Adaptive WAN Profile (40 FPS, 720p)">WAN</button>
                     <button id="btn-profile-sharp" class="toolbar-pill-btn" title="Ultra Sharp Profile (30 FPS, Original)">4K</button>
                 </div>
 
@@ -317,16 +319,24 @@
                         <div class="slider-row">
                             <div class="slider-header">
                                 <label for="slider-fps">Target FPS:</label>
-                                <span id="val-slider-fps" class="slider-val-highlight">40</span>
+                                <span id="val-slider-fps" class="slider-val-highlight">120</span>
                             </div>
-                            <input id="slider-fps" type="range" class="cyber-range" min="15" max="60" step="5" value="40" title="Target Frame Rate (FPS)" aria-label="Target Frame Rate (FPS)">
+                            <input id="slider-fps" type="range" class="cyber-range" min="15" max="200" step="1" value="120" title="Target Frame Rate (FPS: 15 to 200)" aria-label="Target Frame Rate (FPS)">
+                            <div class="fps-quick-chips">
+                                <button type="button" class="fps-chip-btn" data-fps="30">30</button>
+                                <button type="button" class="fps-chip-btn" data-fps="60">60</button>
+                                <button type="button" class="fps-chip-btn" data-fps="100">100</button>
+                                <button type="button" class="fps-chip-btn active" data-fps="120">120</button>
+                                <button type="button" class="fps-chip-btn" data-fps="144">144</button>
+                                <button type="button" class="fps-chip-btn" data-fps="200">200</button>
+                            </div>
                         </div>
                         <div class="slider-row">
                             <div class="slider-header">
                                 <label for="slider-quality">JPEG Quality:</label>
-                                <span id="val-slider-quality" class="slider-val-highlight">50%</span>
+                                <span id="val-slider-quality" class="slider-val-highlight">55%</span>
                             </div>
-                            <input id="slider-quality" type="range" class="cyber-range" min="30" max="95" step="5" value="50" title="JPEG Streaming Quality" aria-label="JPEG Streaming Quality">
+                            <input id="slider-quality" type="range" class="cyber-range" min="25" max="95" step="5" value="55" title="JPEG Streaming Quality" aria-label="JPEG Streaming Quality">
                         </div>
                         <div class="slider-row">
                             <div class="slider-header">
@@ -334,11 +344,13 @@
                                 <span id="val-slider-res-badge" class="slider-val-highlight">720p HD</span>
                             </div>
                             <div class="cyber-res-chips-row">
+                                <button type="button" id="btn-res-540" class="res-chip-btn" data-res="540" title="540p Turbo Low Latency">🚀 540p</button>
                                 <button type="button" id="btn-res-720" class="res-chip-btn active" data-res="720" title="720p High Frame Rate">⚡ 720p HD</button>
                                 <button type="button" id="btn-res-1080" class="res-chip-btn" data-res="1080" title="1080p Crisp Details">🖥️ 1080p</button>
                                 <button type="button" id="btn-res-native" class="res-chip-btn" data-res="0" title="Native Host Monitor Resolution">💎 Native</button>
                             </div>
                             <select id="select-max-height" class="cyber-select hidden-select" title="Max Streaming Resolution" aria-label="Max Streaming Resolution" tabindex="-1">
+                                <option value="540">540p Turbo (Ultra Low Latency)</option>
                                 <option value="720" selected>720p HD (Low Latency)</option>
                                 <option value="1080">1080p FHD (Crisp)</option>
                                 <option value="0">Native Resolution (Original)</option>
@@ -458,12 +470,33 @@
                         <div class="card-body">
                             <!-- Quick Network Switch Chips -->
                             <div class="sidebar-chips-row">
-                                <button id="sidebar-chip-wifi" class="sidebar-net-chip" title="Switch to Local Wi-Fi">📶 Wi-Fi</button>
+                                <button id="sidebar-chip-wifi" class="sidebar-net-chip" title="Switch to Local Wi-Fi / LAN IP">📶 Wi-Fi</button>
                                 <button id="sidebar-chip-localhost" class="sidebar-net-chip active" title="Switch to Localhost">💻 Localhost</button>
-                                <button id="sidebar-chip-tunnel" class="sidebar-net-chip" title="Switch to Cloudflare Tunnel">☁️ Tunnel</button>
+                                <button id="sidebar-chip-tunnel" class="sidebar-net-chip" title="Switch to Cloudflare Tunnel">☁️ Cloudflare</button>
+                                <button id="sidebar-chip-tailscale" class="sidebar-net-chip" title="Switch to Tailscale WireGuard P2P">⚡ Tailscale</button>
                             </div>
                             <div class="sidebar-tunnel-subrow">
-                                <button id="btn-sidebar-launch-tunnel" type="button" class="sidebar-tunnel-action" title="Launch Cloudflare Tunnel Terminal">⚡ Launch Terminal Tunnel</button>
+                                <button id="btn-sidebar-launch-tunnel" type="button" class="sidebar-tunnel-action" title="Launch Cloudflare Tunnel in new terminal window">☁️ Launch Cloudflare</button>
+                                <button id="btn-sidebar-launch-tailscale" type="button" class="sidebar-tunnel-action" title="Launch Tailscale Setup & Status Helper">⚡ Launch Tailscale</button>
+                            </div>
+
+                            <!-- Live Discovered Network Details in Sidebar -->
+                            <div class="sidebar-network-details">
+                                <div class="net-detail-line">
+                                    <span class="net-detail-label">Local IP:</span>
+                                    <span id="sidebar-detected-lan-ip" class="net-detail-val" title="Click to apply as Gateway">Detecting...</span>
+                                    <button id="btn-sidebar-copy-lan" type="button" class="net-detail-btn" title="Copy LAN URL">📋</button>
+                                </div>
+                                <div class="net-detail-line">
+                                    <span class="net-detail-label">Cloudflare:</span>
+                                    <span id="sidebar-detected-tunnel-status" class="net-detail-val val-inactive" title="Cloudflare Tunnel Status">Offline</span>
+                                    <button id="btn-sidebar-copy-tunnel" type="button" class="net-detail-btn" title="Copy Cloudflare Tunnel URL" style="display:none;">📋</button>
+                                </div>
+                                <div class="net-detail-line">
+                                    <span class="net-detail-label">Tailscale:</span>
+                                    <span id="sidebar-detected-tailscale-status" class="net-detail-val val-inactive" title="Tailscale P2P Status">Detecting...</span>
+                                    <button id="btn-sidebar-copy-tailscale" type="button" class="net-detail-btn" title="Copy Tailscale URL" style="display:none;">📋</button>
+                                </div>
                             </div>
 
                             <label class="sidebar-label" for="sidebar-txt-server">Gateway URL:</label>
@@ -747,6 +780,7 @@
                             <button id="chip-set-wifi" class="net-chip active">📶 Local Wi-Fi (Auto LAN IP)</button>
                             <button id="chip-set-localhost" class="net-chip">💻 Localhost (127.0.0.1:5293)</button>
                             <button id="chip-set-tunnel" class="net-chip">☁️ Cloudflare Public Tunnel</button>
+                            <button id="chip-set-tailscale" class="net-chip">⚡ Tailscale WireGuard P2P</button>
                         </div>
 
                         <div class="form-row">
@@ -761,11 +795,26 @@
                             <span class="stat-label">Gateway Status:</span>
                             <span id="gateway-status-val" class="stat-val good">Online • Ready</span>
                             <span class="stat-label">Detected LAN IP:</span>
-                            <span id="gateway-lan-val" class="stat-val">192.168.1.1</span>
+                            <span id="gateway-lan-val" class="stat-val">Detecting...</span>
+                            <span class="stat-label">Tailscale IP:</span>
+                            <span id="gateway-tailscale-val" class="stat-val">Detecting...</span>
                         </div>
 
-                        <!-- Cloudflare Public Internet Tunnel Panel -->
-                        <div class="tunnel-launcher-card">
+                        <!-- Dual-Mode Tunnel Switcher -->
+                        <div class="tunnel-mode-toggle-bar">
+                            <span class="tunnel-toggle-label">REMOTE WAN TUNNEL MODE:</span>
+                            <div class="tunnel-mode-pills">
+                                <button id="btn-tunnel-mode-cf" type="button" class="tunnel-mode-pill active" title="Use Cloudflare Public Edge Relay (No client install required)">
+                                    ☁️ Cloudflare Edge Relay
+                                </button>
+                                <button id="btn-tunnel-mode-ts" type="button" class="tunnel-mode-pill" title="Use Tailscale WireGuard Direct P2P (Lowest Latency & Maximum FPS)">
+                                    ⚡ Tailscale WireGuard P2P
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 1. Cloudflare Public Internet Tunnel Panel -->
+                        <div id="panel-tunnel-cloudflare" class="tunnel-launcher-card">
                             <div class="tunnel-card-header">
                                 <div class="tunnel-title">
                                     <span class="tunnel-icon">☁️</span>
@@ -773,7 +822,7 @@
                                 </div>
                                 <span id="tunnel-live-badge" class="tunnel-status-badge badge-offline">Offline</span>
                             </div>
-                            <p class="tunnel-desc">Connect from any outside network, phone hotspot, or remote office without router port forwarding.</p>
+                            <p class="tunnel-desc">Connect from any outside network, phone hotspot, or remote office without router port forwarding or third-party software.</p>
                             
                             <div id="tunnel-active-row" class="tunnel-active-row" style="display: none;">
                                 <span class="stat-label">Live Tunnel:</span>
@@ -795,6 +844,54 @@
                             <div class="tunnel-input-row">
                                 <input id="input-tunnel-url-manual" type="text" class="cyber-input" placeholder="Paste Cloudflare URL (e.g. https://xxx.trycloudflare.com)" aria-label="Manual Cloudflare Tunnel URL" />
                                 <button id="btn-apply-tunnel-manual" type="button" class="cyber-btn cyber-btn-outline">Apply Tunnel</button>
+                            </div>
+                        </div>
+
+                        <!-- 2. Tailscale Low-Latency WireGuard P2P Panel -->
+                        <div id="panel-tunnel-tailscale" class="tunnel-launcher-card" style="display: none;">
+                            <div class="tunnel-card-header">
+                                <div class="tunnel-title">
+                                    <span class="tunnel-icon">⚡</span>
+                                    <span>Tailscale Low-Latency WireGuard Mesh (Direct P2P)</span>
+                                </div>
+                                <span id="tailscale-live-badge" class="tunnel-status-badge badge-offline">Offline</span>
+                            </div>
+                            <p class="tunnel-desc">Ultra-low latency WireGuard UDP peer-to-peer connection. Completely eliminates cloud relay overhead (&lt;5ms extra latency vs 50–200ms with web relays).</p>
+
+                            <div id="tailscale-active-row" class="tunnel-active-row" style="display: none;">
+                                <span class="stat-label">Tailscale Gateway:</span>
+                                <span id="tailscale-active-url" class="tunnel-url-text">Detecting...</span>
+                                <button id="btn-use-active-tailscale" type="button" class="cyber-btn cyber-btn-primary cyber-btn-sm">⚡ Connect via Tailscale</button>
+                            </div>
+
+                            <div class="tunnel-actions-row">
+                                <button id="btn-launch-tailscale-helper" type="button" class="cyber-btn cyber-btn-primary" title="Verify Tailscale status and launch helper">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                                    <span>⚡ Launch Tailscale Setup / Status</span>
+                                </button>
+                                <button id="btn-copy-tailscale-url" type="button" class="cyber-btn cyber-btn-outline" title="Copy Tailscale Gateway URL to clipboard for Remote PC">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+                                    <span>📋 Copy Tailscale URL for Remote PC</span>
+                                </button>
+                                <a id="btn-download-tailscale" href="https://tailscale.com/download" target="_blank" rel="noopener noreferrer" class="cyber-btn cyber-btn-outline" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;">
+                                    <span>⬇️ Download Tailscale</span>
+                                </a>
+                            </div>
+
+                            <!-- Tailscale Quick Instructions Card -->
+                            <div class="tailscale-instructions-card">
+                                <div class="ts-inst-header">SETUP INSTRUCTIONS FOR YOUR REMOTE PC:</div>
+                                <ol class="ts-inst-list">
+                                    <li>Install Tailscale on your Remote PC and sign in with the <strong>same account</strong>.</li>
+                                    <li>On Remote PC, run <code>SETUP_TAILSCALE_REMOTE.bat</code> in the <code>2_REMOTE_PC_STREAMER</code> folder.</li>
+                                    <li>When enrolling via <code>1_CLICK_ENROLL_REMOTE_PC.bat</code>, enter your Tailscale URL (e.g. <code id="ts-inst-sample-url">http://100.x.y.z:5293</code>).</li>
+                                </ol>
+                                <div class="ts-spec-badges">
+                                    <span class="ts-spec-badge">🚀 WireGuard UDP Direct P2P</span>
+                                    <span class="ts-spec-badge">⚡ &lt;5ms Overhead</span>
+                                    <span class="ts-spec-badge">♾️ Unlimited Bandwidth</span>
+                                    <span class="ts-spec-badge">🔒 Permanent 100.x.x.x IP</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -887,25 +984,26 @@
                         <div class="slider-row">
                             <div class="slider-header">
                                 <label for="modal-slider-fps">Target Frame Rate (FPS):</label>
-                                <span id="modal-val-fps" class="slider-val-highlight">40 FPS</span>
+                                <span id="modal-val-fps" class="slider-val-highlight">120 FPS</span>
                             </div>
-                            <input id="modal-slider-fps" type="range" class="cyber-range" min="15" max="60" step="5" value="40" />
-                            <div class="slider-ticks"><span>15 (Eco)</span><span>30</span><span>40 (Turbo)</span><span>60 (Direct LAN)</span></div>
+                            <input id="modal-slider-fps" type="range" class="cyber-range" min="15" max="200" step="1" value="120" />
+                            <div class="slider-ticks"><span>30</span><span>60</span><span>100</span><span>120</span><span>144</span><span>200</span></div>
                         </div>
 
                         <div class="slider-row">
                             <div class="slider-header">
                                 <label for="modal-slider-quality">JPEG Stream Quality:</label>
-                                <span id="modal-val-quality" class="slider-val-highlight">50%</span>
+                                <span id="modal-val-quality" class="slider-val-highlight">55%</span>
                             </div>
-                            <input id="modal-slider-quality" type="range" class="cyber-range" min="30" max="95" step="5" value="50" />
-                            <div class="slider-ticks"><span>30% (Speed)</span><span>50% (Balanced)</span><span>75%</span><span>95% (Sharp)</span></div>
+                            <input id="modal-slider-quality" type="range" class="cyber-range" min="25" max="95" step="5" value="55" />
+                            <div class="slider-ticks"><span>25% (Turbo)</span><span>55% (Balanced)</span><span>75%</span><span>95% (Sharp)</span></div>
                         </div>
 
                         <div class="form-row">
                             <label for="modal-select-resolution">Maximum Stream Resolution:</label>
                             <select id="modal-select-resolution" class="cyber-select">
-                                <option value="720">720p HD (Low Latency, High FPS)</option>
+                                <option value="540">540p Turbo (Ultra Low Latency)</option>
+                                <option value="720" selected>720p HD (Low Latency, High FPS)</option>
                                 <option value="1080">1080p FHD (Crisp)</option>
                                 <option value="0">Native Resolution (Unscaled Host Monitor)</option>
                             </select>
@@ -1018,6 +1116,6 @@
     </div>
 
     <!-- Application Script Entry Point -->
-    <script type="module" src="js/app.js?v=20261102_v4"></script>
+    <script type="module" src="js/app.js?v=20261103_v2"></script>
 </body>
 </html>

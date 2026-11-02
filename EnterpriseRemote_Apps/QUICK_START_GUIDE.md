@@ -12,9 +12,12 @@ EnterpriseRemote_Apps/
 ├── 1_MAIN_PC_CONTROLLER/
 │   ├── ⭐ START_MAIN_PC.vbs                ← Double-click (ZERO console windows, pure dark UI)
 │   ├── START_MAIN_PC.bat                   ← Alternative batch launcher
-│   ├── 🌐 START_PUBLIC_INTERNET_TUNNEL.bat  ← 1-Click Cloudflare Edge Tunnel (Connect Anywhere)
+│   ├── 🌐 START_PUBLIC_INTERNET_TUNNEL.bat  ← 1-Click Cloudflare Edge Tunnel (Connect Anywhere, no setup)
+│   ├── 🚀 START_TAILSCALE_MODE.bat          ← 1-Click Tailscale WireGuard Mode (Best WAN Quality)
+│   ├── START_TAILSCALE_MODE.vbs            ← Silent Tailscale mode launcher (no console window)
 │   ├── ADMIN_ACCOUNTS.txt                  ← Authorized administrator directory & fast login info
-│   ├── start_tunnel.ps1                    ← Edge tunnel PowerShell automation engine
+│   ├── start_tunnel.ps1                    ← Cloudflare tunnel PowerShell automation engine
+│   ├── start_tailscale_tunnel.ps1          ← Tailscale mode PowerShell helper & IP display
 │   ├── README_MAIN_PC.txt                  ← Detailed notes & firewall setup
 │   └── Bin/                                ← ControlPlane + Controller binaries + cloudflared + assets
 │
@@ -22,7 +25,8 @@ EnterpriseRemote_Apps/
 │   ├── ⭐ START_REMOTE_STREAMING.vbs       ← Double-click (runs in System Tray ONLY, NO taskbar button)
 │   ├── START_REMOTE_STREAMING.bat          ← Alternative batch launcher
 │   ├── STOP_REMOTE_STREAMING.bat           ← 1-click stop all streaming processes
-│   ├── 1_CLICK_ENROLL_REMOTE_PC.bat        ← First-time pairing wizard (LAN IP or Tunnel URL)
+│   ├── 1_CLICK_ENROLL_REMOTE_PC.bat        ← First-time pairing wizard (LAN IP, Tunnel URL, or Tailscale IP)
+│   ├── 🚀 SETUP_TAILSCALE_REMOTE.bat       ← Confirms Tailscale connectivity on Remote PC
 │   ├── 🛡️ Install_Windows_Service_Admin.bat ← Installs Session 0 Windows Service for 24/7 access
 │   ├── Uninstall_Windows_Service_Admin.bat ← Removes the background Windows Service cleanly
 │   ├── README_REMOTE_PC.txt                ← Detailed remote host notes
@@ -107,6 +111,9 @@ To allow the remote laptop to be accessed even before any user logs in, at the W
 
 | Feature | Action / Control |
 |---|---|
+| **High-Refresh Rate Profiles** | Click top presets: **144** (144 FPS / 1080p), **120** (120 FPS / 720p Cloudflare Ultra), **60** (LAN Direct), **WAN** (40 FPS Adaptive), **4K** (30 FPS Native) |
+| **FPS Quick Chips & Slider** | Tuning ▾ → Slider spans **15 to 200 FPS** with 1-click quick chips: 30, 60, 100, 120, 144, 200 |
+| **Stream Resolution Chips** | Tuning ▾ → **🚀 540p Turbo** (Lowest latency WAN), **⚡ 720p HD**, **🖥️ 1080p**, **💎 Native** |
 | **Full Screen Mode** | Press `F11` or click "Full Screen" |
 | **Exit Full Screen** | Press `Esc` or `F11` |
 | **Display Scale Mode** | Click the **"Scale Mode"** button to cycle between:<br>• **Fit Screen** (preserves aspect ratio with letterboxes)<br>• **Stretch to Fill (100% Screen)** (fills entire viewer window)<br>• **1:1 Native Resolution** (pixel-perfect native resolution with 100% mouse precision) |

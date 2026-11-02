@@ -114,7 +114,7 @@ Write-Host ""
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $cfExe
-$psi.Arguments = "tunnel --edge-ip-version 4 --url http://127.0.0.1:$TargetPort"
+$psi.Arguments = "tunnel --protocol auto --edge-ip-version 4 --post-quantum=false --compression-quality 0 --url http://127.0.0.1:$TargetPort"
 $psi.RedirectStandardError = $true
 $psi.RedirectStandardOutput = $true
 $psi.UseShellExecute = $false

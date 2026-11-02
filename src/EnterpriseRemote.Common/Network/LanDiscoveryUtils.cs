@@ -20,7 +20,7 @@ public static class LanDiscoveryUtils
 {
     private static readonly string[] VirtualKeywords = new[]
     {
-        "virtual", "vbox", "vmware", "hyper-v", "vethernet", "pseudo", "loopback", "wsl", "teredo", "tap", "host-only", "npcap"
+        "virtual", "vbox", "vmware", "hyper-v", "vethernet", "pseudo", "loopback", "wsl", "teredo", "tap", "host-only", "npcap", "wi-fi direct", "p2p"
     };
 
     /// <summary>
@@ -174,6 +174,30 @@ public static class LanDiscoveryUtils
             }
         }
         catch { }
+
+        // Fallback: Check persisted tailscale_ip.txt files in application or parent directories
+        try
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string rootDir = baseDir;
+            for (int i = 0; i < 6; i++)
+            {
+                string candidate = Path.Combine(rootDir, "tailscale_ip.txt");
+                if (File.Exists(candidate))
+                {
+                    string ip = File.ReadAllText(candidate).Trim();
+                    if (!string.IsNullOrWhiteSpace(ip) && (ip.StartsWith("100.") || IPAddress.TryParse(ip, out _)))
+                    {
+                        return ip;
+                    }
+                }
+                string? parent = Directory.GetParent(rootDir)?.FullName;
+                if (parent == null) break;
+                rootDir = parent;
+            }
+        }
+        catch { }
+
         return null;
     }
 
@@ -183,12 +207,65 @@ public static class LanDiscoveryUtils
     public static bool IsTailscaleConnected() => GetTailscaleIp() != null;
 
     /// <summary>
+    /// Returns true if a cloudflared process is currently running on this machine.
+    /// </summary>
+    public static bool IsCloudflaredRunning()
+    {
+        try
+        {
+            return System.Diagnostics.Process.GetProcessesByName("cloudflared").Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Deletes any orphan public_tunnel_url.txt files left behind by past terminated sessions.
+    /// </summary>
+    public static void CleanupStaleTunnelFiles()
+    {
+        try
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string rootDir = baseDir;
+            for (int i = 0; i < 6; i++)
+            {
+                string candidate = Path.Combine(rootDir, "public_tunnel_url.txt");
+                if (File.Exists(candidate))
+                {
+                    try { File.Delete(candidate); } catch { }
+                }
+                string? parent = Directory.GetParent(rootDir)?.FullName;
+                if (parent == null) break;
+                rootDir = parent;
+            }
+
+            string localCandidate = Path.Combine(baseDir, "public_tunnel_url.txt");
+            if (File.Exists(localCandidate))
+            {
+                try { File.Delete(localCandidate); } catch { }
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
     /// Searches for active public_tunnel_url.txt in app and parent directories.
+    /// Returns null if cloudflared is not actually running to prevent stale/dead URLs.
     /// </summary>
     public static string? TryReadPublicTunnelUrl()
     {
         try
         {
+            // If cloudflared is not running, any URL file on disk is an orphan from a closed session
+            if (!IsCloudflaredRunning())
+            {
+                CleanupStaleTunnelFiles();
+                return null;
+            }
+
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string rootDir = baseDir;
             for (int i = 0; i < 6; i++)
