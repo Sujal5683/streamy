@@ -835,6 +835,7 @@ public sealed class DesktopStreamingService : IDisposable
     public void Dispose()
     {
         _cts.Cancel();
+        _inputEngine.Dispose();
         _cachedBmp?.Dispose();
         _cachedBmp = null;
         _reusableJpegStream.Dispose();

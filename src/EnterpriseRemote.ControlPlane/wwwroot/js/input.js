@@ -215,12 +215,25 @@ export class InputHandler {
 
     initKeyboardListeners() {
         const c = this.canvas;
+        this.isHoveringCanvas = false;
+
+        c.addEventListener('mouseenter', () => { this.isHoveringCanvas = true; });
+        c.addEventListener('mouseleave', () => { this.isHoveringCanvas = false; });
 
         const handleKey = (e, isDown) => {
             if (!this.inputEnabled || !this.streamClient.isConnected) return;
-            if (document.activeElement !== c) return;
 
-            // Prevent browser shortcuts when canvas has focus (Alt+Left, Backspace, Tab, etc.)
+            // Allow keys if canvas is active or if user is hovering over remote viewport
+            const isTargetingStream = (document.activeElement === c) || this.isHoveringCanvas;
+            if (!isTargetingStream) return;
+
+            // If active element is a form input inside the controller UI, allow standard editing
+            const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+            if (tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable) {
+                return;
+            }
+
+            // Prevent default browser shortcuts (Alt+Left, Backspace, Tab, Space, etc.)
             if (e.code !== 'F12' && e.code !== 'F5') {
                 e.preventDefault();
             }
@@ -238,6 +251,8 @@ export class InputHandler {
 
         c.addEventListener('keydown', (e) => handleKey(e, true));
         c.addEventListener('keyup', (e) => handleKey(e, false));
+        window.addEventListener('keydown', (e) => handleKey(e, true));
+        window.addEventListener('keyup', (e) => handleKey(e, false));
     }
 
     /**
