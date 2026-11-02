@@ -136,6 +136,8 @@ public class QuickPinAndLanStreamingTests
     [InlineData("http:// http://https://172.18.11.122:5293:5293", "http://172.18.11.122:5293")]
     [InlineData("https://tunnel-abc.trycloudflare.com", "https://tunnel-abc.trycloudflare.com")]
     [InlineData("tunnel-abc.trycloudflare.com:5293", "https://tunnel-abc.trycloudflare.com")]
+    [InlineData("https://remote.mycompany.com", "https://remote.mycompany.com")]
+    [InlineData("https://tunnel-xyz.trycloudflare.com/", "https://tunnel-xyz.trycloudflare.com")]
     [InlineData("localhost", "http://localhost:5293")]
     [InlineData("", "http://127.0.0.1:5293")]
     public void UrlUtils_NormalizeServerUrl_ProducesCanonicalValidUri(string input, string expected)

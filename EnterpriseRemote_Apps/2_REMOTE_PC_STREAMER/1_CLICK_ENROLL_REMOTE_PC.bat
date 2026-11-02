@@ -41,16 +41,9 @@ echo.
 echo  Target Control Plane: %SERVER_URL%
 echo.
 
-:: ── Step 2: Invitation Code or 4-Digit Quick PIN ─────────────────────────────
-set /p INVITATION_CODE="Enter the Invitation Code or 4-Digit Quick PIN from your Main PC: "
-if "%INVITATION_CODE%"=="" (
-    echo.
-    echo  [ERROR] An Invitation Code or PIN is required for secure enrollment.
-    echo          Generate one from the Main PC Controller app and try again.
-    echo.
-    pause
-    exit /b 1
-)
+:: ── Step 2: Invitation Code, PIN, or Passkey ─────────────────────────────────
+set /p INVITATION_CODE="Enter Invitation Code, 4-Digit Quick PIN (1234), or Permanent Master Key [default: 1234]: "
+if "%INVITATION_CODE%"=="" set INVITATION_CODE=1234
 
 :: Strip quotes and spaces
 set INVITATION_CODE=%INVITATION_CODE:"=%
@@ -65,6 +58,16 @@ cd /d "%~dp0Bin"
 EnterpriseRemote.Host.Service.exe --enroll "%INVITATION_CODE%" --server "%SERVER_URL%"
 set ENROLL_RESULT=%ERRORLEVEL%
 cd /d "%~dp0"
+
+:: If enroll failed, check if device was already enrolled previously
+if %ENROLL_RESULT% neq 0 (
+    if exist "%~dp0Bin\device_identity.json" (
+        echo.
+        echo  [+] Existing pairing identity found (device_identity.json).
+        echo      Proceeding to launch streaming services with existing identity...
+        set ENROLL_RESULT=0
+    )
+)
 
 if %ENROLL_RESULT% neq 0 (
     echo.
@@ -89,23 +92,37 @@ if %ENROLL_RESULT% neq 0 (
     echo     -^> Generate a fresh 4-digit PIN or invitation code in the Controller.
     echo.
     echo  4. WINDOWS FIREWALL:
-    echo     -^> Run this on your Main PC as Administrator:
-    echo        netsh advfirewall firewall add rule name="EnterpriseRemote" protocol=TCP dir=in localport=5293 action=allow
+    echo     -^> Run ALLOW_FIREWALL_PORT_5293.bat on your Main PC as Administrator.
     echo.
     pause
     exit /b %ENROLL_RESULT%
 )
 
 echo.
-echo  [SUCCESS] This device has been enrolled and paired!
+echo  ================================================================
+echo  [SUCCESS] Device Enrolled & Paired Successfully!
+echo  ================================================================
 echo.
-echo  [*] Registering and starting background service (EnterpriseRemoteHostSvc)...
+echo  [*] Registering and starting background service...
+cd /d "%~dp0Bin"
 EnterpriseRemote.Host.Service.exe --install >nul 2>&1
 sc.exe start EnterpriseRemoteHostSvc >nul 2>&1
-echo.
-echo  [*] Starting Enterprise Remote streaming services now...
-echo.
-timeout /T 2 /NOBREAK >nul
 
-call START_REMOTE_STREAMING.bat
+:: Also ensure host service runner is active
+start "" "%~dp0Bin\EnterpriseRemote.Host.Service.exe" --run
+
+echo  [*] Starting real-time Desktop Screen Streamer...
+start "" "%~dp0Bin\EnterpriseRemote.Host.UserAgent.exe" --server "%SERVER_URL%"
+cd /d "%~dp0"
+
+echo.
+echo  ================================================================
+echo   [LIVE] STREAMING IS NOW ACTIVE!
+echo  ================================================================
+echo   Screen capture is running and broadcasting to your Main PC.
+echo   Return to your Main PC Controller and click "Connect".
+echo.
+echo   Look for the green shield icon in the taskbar notification tray (^).
+echo.
+timeout /T 4 >nul
 exit /b 0

@@ -30,17 +30,17 @@ public static class Program
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool FreeConsole();
     [STAThread]
-    public static async Task<int> Main(string[] args)
+    public static int Main(string[] args)
     {
-        // Auto-elevate if not running as Administrator to ensure UIPI bypass across elevated and lockdown apps
-        if (!IsAdministrator() && !args.Any(a => a.Equals("--no-elevate", StringComparison.OrdinalIgnoreCase)))
+        // Auto-elevate if explicitly requested via --elevate flag
+        if (!IsAdministrator() && args.Any(a => a.Equals("--elevate", StringComparison.OrdinalIgnoreCase)))
         {
             try
             {
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = Environment.ProcessPath ?? "EnterpriseRemote.Host.UserAgent.exe",
-                    Arguments = string.Join(" ", args),
+                    Arguments = string.Join(" ", args.Where(a => !a.Equals("--elevate", StringComparison.OrdinalIgnoreCase))),
                     Verb = "runas",
                     UseShellExecute = true
                 };
@@ -52,7 +52,7 @@ public static class Program
                 // User declined UAC prompt; continue un-elevated with SYSTEM service fallback
             }
         }
-        await Task.Yield();
+
         try
         {
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);

@@ -16,7 +16,11 @@ public static class UrlUtils
             return "http://127.0.0.1:5293";
         }
 
-        string s = rawUrl.Trim().Trim('"', '\'');
+        string rawTrimmed = rawUrl.Trim().Trim('"', '\'');
+        bool wasExplicitHttps = rawTrimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                                rawTrimmed.StartsWith("wss://", StringComparison.OrdinalIgnoreCase);
+
+        string s = rawTrimmed;
 
         // Repeatedly strip any leading http://, https://, ws://, wss://, and spaces
         while (true)
@@ -55,13 +59,16 @@ public static class UrlUtils
         bool isCloudflare = s.Contains("trycloudflare.com", StringComparison.OrdinalIgnoreCase) ||
                             s.Contains("cloudflare", StringComparison.OrdinalIgnoreCase);
 
-        if (isCloudflare)
+        if (isCloudflare || wasExplicitHttps)
         {
             // Cloudflare tunnels terminate on port 443; strip any accidental port like :5293
-            int colonIdx = s.IndexOf(':');
-            if (colonIdx > 0)
+            if (isCloudflare)
             {
-                s = s.Substring(0, colonIdx);
+                int colonIdx = s.IndexOf(':');
+                if (colonIdx > 0)
+                {
+                    s = s.Substring(0, colonIdx);
+                }
             }
             return $"https://{s}";
         }

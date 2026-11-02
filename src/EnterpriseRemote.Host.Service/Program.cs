@@ -93,7 +93,7 @@ public static class Program
         string osVersion = Environment.OSVersion.ToString();
         string macAddress = "00:50:56:C0:00:08"; // Standard primary adapter MAC
 
-        using var http = new HttpClient { BaseAddress = new Uri(serverUrl), Timeout = TimeSpan.FromSeconds(20) };
+        using var http = CreateHttpClient(serverUrl, TimeSpan.FromSeconds(20));
         var payload = new
         {
             InvitationCode = invitationCode,
@@ -200,7 +200,7 @@ public static class Program
             Console.WriteLine("[+] Enterprise Browser Streaming Policies verified (Chrome & Edge unblocked).");
         }
 
-        using var http = new HttpClient { BaseAddress = new Uri(identity.ControlPlaneUrl), Timeout = TimeSpan.FromSeconds(5) };
+        using var http = CreateHttpClient(identity.ControlPlaneUrl, TimeSpan.FromSeconds(5));
         var cts = new CancellationTokenSource();
 
         Console.CancelKeyPress += (_, e) =>
@@ -279,6 +279,15 @@ public static class Program
         catch { }
     }
 
+
+    private static HttpClient CreateHttpClient(string serverUrl, TimeSpan timeout)
+    {
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+        };
+        return new HttpClient(handler) { BaseAddress = new Uri(serverUrl), Timeout = timeout };
+    }
 
     private static void SaveIdentity(StoredDeviceIdentity identity)
     {

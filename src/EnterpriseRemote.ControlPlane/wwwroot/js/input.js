@@ -253,8 +253,7 @@ export class InputHandler {
             this.streamClient.sendPacket(packet);
         };
 
-        c.addEventListener('keydown', (e) => handleKey(e, true));
-        c.addEventListener('keyup', (e) => handleKey(e, false));
+        // Global window listeners capture all keystrokes when canvas is focused, hovered, or in fullscreen
         window.addEventListener('keydown', (e) => handleKey(e, true));
         window.addEventListener('keyup', (e) => handleKey(e, false));
     }

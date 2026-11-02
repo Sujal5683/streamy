@@ -26,11 +26,15 @@ Function IsAdmin()
     Err.Clear
 End Function
 
-If Not IsAdmin() Then
+If Not IsAdmin() And WScript.Arguments.Count = 0 Then
+    On Error Resume Next
     Dim app
     Set app = CreateObject("Shell.Application")
-    app.ShellExecute "wscript.exe", """" & WScript.ScriptFullName & """ --elevated", "", "runas", 0
-    WScript.Quit
+    app.ShellExecute "wscript.exe", """" & WScript.ScriptFullName & """ --elevated", "", "runas", 1
+    If Err.Number = 0 Then
+        WScript.Quit
+    End If
+    Err.Clear
 End If
 Set WshShell = CreateObject("WScript.Shell")
 Set fso      = CreateObject("Scripting.FileSystemObject")
@@ -52,12 +56,13 @@ Else
     ' ── Already enrolled: start everything silently (Run=0 = hidden) ────────
     WshShell.CurrentDirectory = binDir
 
+    On Error Resume Next
     ' Start the background streaming service
     WshShell.Run """" & binDir & "\EnterpriseRemote.Host.Service.exe"" --run", 0, False
 
-    ' Give the service ~800ms to bind before the tray agent connects
-    WScript.Sleep 800
+    ' Give the service ~600ms to bind before the tray agent connects
+    WScript.Sleep 600
 
-    ' Start the system-tray notification agent
+    ' Start the system-tray notification & streaming agent
     WshShell.Run """" & binDir & "\EnterpriseRemote.Host.UserAgent.exe""", 0, False
 End If

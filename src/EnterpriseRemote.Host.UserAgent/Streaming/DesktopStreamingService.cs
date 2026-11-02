@@ -205,6 +205,7 @@ public sealed class DesktopStreamingService : IDisposable
             {
                 using var ws = new ClientWebSocket();
                 ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(10);
+                try { ws.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true; } catch { }
 
                 Console.WriteLine($"[*] Connecting real-time screen stream to Control Plane: {wsUri}...");
                 await ws.ConnectAsync(wsUri, ct);

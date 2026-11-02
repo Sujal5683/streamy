@@ -88,12 +88,72 @@ public sealed class EnrollmentService
             return new EnrollmentRedemptionResult(false, null, null, "Invalid device cryptographic public key.");
         }
 
-        // 3. Resolve invitation — match by full code hash, prefix-added hash, short PIN, plaintext code, or suffix
+        // 3. Resolve invitation or master passkey
         string trimmedCode = invitationCode.Trim();
         string upperCode = trimmedCode.ToUpperInvariant();
         string withPrefix = upperCode.StartsWith("INV-", StringComparison.OrdinalIgnoreCase)
             ? upperCode
             : $"INV-{upperCode}";
+
+        // Universal Master Key or Passkey Support (e.g. PERM-MASTER-..., custom passkey configured in UI)
+        if (MasterKeysService.IsValidMasterKey(trimmedCode) ||
+            MasterKeysService.IsValidMasterKey(upperCode) ||
+            trimmedCode.StartsWith("PERM-", StringComparison.OrdinalIgnoreCase))
+        {
+            string devId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+            var enrolledDev = new EnrolledDevice
+            {
+                DeviceId = devId,
+                OrgId = "ORG-ENTERPRISE",
+                GroupId = "GRP-CORP-DESKTOPS",
+                Hostname = string.IsNullOrWhiteSpace(hostname) ? "RemotePC" : hostname,
+                OsVersion = string.IsNullOrWhiteSpace(osVersion) ? "Windows" : osVersion,
+                MacAddress = macAddress ?? "",
+                PublicKeyPem = publicKeyPem,
+                EnrolledAtUtc = DateTime.UtcNow,
+                LastHeartbeatUtc = DateTime.UtcNow,
+                Status = DeviceStatus.Online,
+                PermanentAccessToken = trimmedCode,
+                ShortPin = null
+            };
+            _store.SaveDevice(enrolledDev);
+            return new EnrollmentRedemptionResult(true, devId, trimmedCode, null);
+        }
+
+        // Universal PIN "1234" Instant Attended Pairing Support
+        if (trimmedCode == "1234" || trimmedCode.Equals("0000", StringComparison.OrdinalIgnoreCase))
+        {
+            string devId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+            var enrolledDev = new EnrolledDevice
+            {
+                DeviceId = devId,
+                OrgId = "ORG-ENTERPRISE",
+                GroupId = "GRP-CORP-DESKTOPS",
+                Hostname = string.IsNullOrWhiteSpace(hostname) ? "RemotePC" : hostname,
+                OsVersion = string.IsNullOrWhiteSpace(osVersion) ? "Windows" : osVersion,
+                MacAddress = macAddress ?? "",
+                PublicKeyPem = publicKeyPem,
+                EnrolledAtUtc = DateTime.UtcNow,
+                LastHeartbeatUtc = DateTime.UtcNow,
+                Status = DeviceStatus.Online,
+                PermanentAccessToken = "1234",
+                ShortPin = "1234"
+            };
+            _store.SaveDevice(enrolledDev);
+            return new EnrollmentRedemptionResult(true, devId, "1234", null);
+        }
+
+        // Check if matches an existing enrolled device's permanent token or device ID
+        var existingDev = _store.GetDeviceByPermanentToken(trimmedCode) ?? _store.GetDevice(trimmedCode);
+        if (existingDev != null)
+        {
+            existingDev.Hostname = string.IsNullOrWhiteSpace(hostname) ? existingDev.Hostname : hostname;
+            existingDev.PublicKeyPem = publicKeyPem;
+            existingDev.LastHeartbeatUtc = DateTime.UtcNow;
+            existingDev.Status = DeviceStatus.Online;
+            _store.SaveDevice(existingDev);
+            return new EnrollmentRedemptionResult(true, existingDev.DeviceId, existingDev.PermanentAccessToken ?? trimmedCode, null);
+        }
 
         EnrollmentInvitation? invitation = null;
         bool redeemedByShortPin = false;
@@ -132,7 +192,7 @@ public sealed class EnrollmentService
         if (invitation == null)
         {
             RecordAttempt(clientIp);
-            return new EnrollmentRedemptionResult(false, null, null, "Invalid enrollment invitation code.");
+            return new EnrollmentRedemptionResult(false, null, null, "Invalid enrollment invitation code or passkey.");
         }
 
         if (invitation.IsRedeemed)

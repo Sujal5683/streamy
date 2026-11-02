@@ -169,4 +169,51 @@ public class EnrollmentAndCryptoTests
         bool isTamperedValid = satSvc.VerifyTicket(ticket);
         Assert.False(isTamperedValid);
     }
+
+    [Fact]
+    public void EnrollmentService_RedeemsWithMasterPasskey_SucceedsImmediately()
+    {
+        var store = new MemoryControlPlaneStore();
+        var enrollmentSvc = new EnrollmentService(store);
+        var (_, devPubKey) = CryptoUtils.GenerateEcdsaKeyPair();
+
+        // Enrolling with permanent master key passkey
+        var res = enrollmentSvc.RedeemInvitation(
+            "PERM-MASTER-UNIVERSAL-2026",
+            "WORKSTATION-REMOTE",
+            "Windows 11 Enterprise",
+            "00:11:22:33:44:55",
+            devPubKey,
+            "192.168.1.55");
+
+        Assert.True(res.Success);
+        Assert.NotNull(res.DeviceId);
+        Assert.StartsWith("DEV-", res.DeviceId);
+        Assert.Equal("PERM-MASTER-UNIVERSAL-2026", res.PermanentAccessToken);
+
+        var dev = store.GetDevice(res.DeviceId);
+        Assert.NotNull(dev);
+        Assert.Equal("WORKSTATION-REMOTE", dev.Hostname);
+    }
+
+    [Fact]
+    public void EnrollmentService_RedeemsWithUniversalPin1234_Succeeds()
+    {
+        var store = new MemoryControlPlaneStore();
+        var enrollmentSvc = new EnrollmentService(store);
+        var (_, devPubKey) = CryptoUtils.GenerateEcdsaKeyPair();
+
+        var res = enrollmentSvc.RedeemInvitation(
+            "1234",
+            "OFFICE-LAPTOP",
+            "Windows 11 Pro",
+            "00:22:33:44:55:66",
+            devPubKey,
+            "192.168.1.56");
+
+        Assert.True(res.Success);
+        Assert.NotNull(res.DeviceId);
+        Assert.StartsWith("DEV-", res.DeviceId);
+        Assert.Equal("1234", res.PermanentAccessToken);
+    }
 }

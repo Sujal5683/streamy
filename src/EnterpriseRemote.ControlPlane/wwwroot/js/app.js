@@ -302,6 +302,7 @@ class WebControllerApp {
 
         this.initCanvasSize();
         this.bindEvents();
+        this.initIslandDraggable();
         this.initAuthAndDevices();
         this.initClipboardListener();
         this.updateGatewayChip();
@@ -488,11 +489,19 @@ class WebControllerApp {
             if (this.dom.labelTriggerUser) {
                 this.dom.labelTriggerUser.textContent = `👑 ${val}`;
             }
+            if (this.dom.labelSidebarTriggerUser) {
+                this.dom.labelSidebarTriggerUser.textContent = `👑 ${val}`;
+            }
             if (this.dom.badgeTriggerUser) {
                 this.dom.badgeTriggerUser.textContent = val.includes('operator') ? 'Operator' : 'Admin';
             }
             if (this.dom.menuCustomUser) {
                 this.dom.menuCustomUser.querySelectorAll('.dropdown-item').forEach(b => {
+                    b.classList.toggle('active', b.getAttribute('data-email') === val);
+                });
+            }
+            if (this.dom.menuSidebarCustomUser) {
+                this.dom.menuSidebarCustomUser.querySelectorAll('.dropdown-item').forEach(b => {
                     b.classList.toggle('active', b.getAttribute('data-email') === val);
                 });
             }
@@ -503,7 +512,7 @@ class WebControllerApp {
             this.dom.sidebarSelectUser.addEventListener('change', () => onUserChange(this.dom.sidebarSelectUser.value));
         }
 
-        // Custom Operator Identity Selector inside Three-Dot Menu
+        // Custom Operator Identity Selector inside Header Three-Dot Menu
         if (this.dom.btnTriggerUser && this.dom.menuCustomUser) {
             this.dom.btnTriggerUser.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -526,6 +535,31 @@ class WebControllerApp {
                     item.classList.add('active');
                     this.dom.menuCustomUser.classList.remove('show');
                     this.dom.btnTriggerUser.classList.remove('active');
+                    this.showToast(`Switched operator identity to ${email}`, 'success');
+                }
+            });
+        }
+
+        // Custom Operator Identity Selector in Sidebar
+        if (this.dom.btnSidebarTriggerUser && this.dom.menuSidebarCustomUser) {
+            this.dom.btnSidebarTriggerUser.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isShowing = this.dom.menuSidebarCustomUser.classList.contains('show');
+                if (this.dom.menuSidebarCustomDevice) this.dom.menuSidebarCustomDevice.classList.remove('show');
+                if (this.dom.btnSidebarTriggerDevice) this.dom.btnSidebarTriggerDevice.classList.remove('active');
+                this.dom.menuSidebarCustomUser.classList.toggle('show', !isShowing);
+                this.dom.btnSidebarTriggerUser.classList.toggle('active', !isShowing);
+            });
+
+            this.dom.menuSidebarCustomUser.addEventListener('click', (e) => {
+                const item = e.target.closest('.dropdown-item');
+                if (!item) return;
+                e.stopPropagation();
+                const email = item.getAttribute('data-email');
+                if (email) {
+                    onUserChange(email);
+                    this.dom.menuSidebarCustomUser.classList.remove('show');
+                    this.dom.btnSidebarTriggerUser.classList.remove('active');
                     this.showToast(`Switched operator identity to ${email}`, 'success');
                 }
             });
@@ -558,9 +592,10 @@ class WebControllerApp {
             }
             this.syncKeyForSelectedDevice();
             this.updateHeaderTargetDisplay();
+            this.updateSidebarTargetDisplay();
         };
 
-        // Custom Target Device Selector inside Three-Dot Menu
+        // Custom Target Device Selector inside Header Three-Dot Menu
         if (this.dom.btnTriggerDevice && this.dom.menuCustomDevice) {
             this.dom.btnTriggerDevice.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -587,6 +622,30 @@ class WebControllerApp {
             });
         }
 
+        // Custom Target Device Selector in Sidebar
+        if (this.dom.btnSidebarTriggerDevice && this.dom.menuSidebarCustomDevice) {
+            this.dom.btnSidebarTriggerDevice.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isShowing = this.dom.menuSidebarCustomDevice.classList.contains('show');
+                if (this.dom.menuSidebarCustomUser) this.dom.menuSidebarCustomUser.classList.remove('show');
+                if (this.dom.btnSidebarTriggerUser) this.dom.btnSidebarTriggerUser.classList.remove('active');
+                this.dom.menuSidebarCustomDevice.classList.toggle('show', !isShowing);
+                this.dom.btnSidebarTriggerDevice.classList.toggle('active', !isShowing);
+            });
+
+            this.dom.menuSidebarCustomDevice.addEventListener('click', (e) => {
+                const item = e.target.closest('.dropdown-item');
+                if (!item) return;
+                e.stopPropagation();
+                const devId = item.getAttribute('data-device-id');
+                if (devId) {
+                    onDeviceChange(devId);
+                    this.dom.menuSidebarCustomDevice.classList.remove('show');
+                    this.dom.btnSidebarTriggerDevice.classList.remove('active');
+                }
+            });
+        }
+
         this.dom.deviceSelect.addEventListener('change', () => onDeviceChange(this.dom.deviceSelect.value));
         if (this.dom.sidebarSelectDevice) {
             this.dom.sidebarSelectDevice.addEventListener('change', () => onDeviceChange(this.dom.sidebarSelectDevice.value));
@@ -595,6 +654,17 @@ class WebControllerApp {
             this.dom.btnSidebarRefreshDevices.addEventListener('click', () => {
                 this.refreshDeviceList();
                 this.showToast('Refreshing device list...', 'info');
+            });
+        }
+
+        // Universal PIN Copy Button
+        if (this.dom.btnWizardCopyPin) {
+            this.dom.btnWizardCopyPin.addEventListener('click', () => {
+                const pin = (this.dom.wizardPin?.textContent || '').trim();
+                if (pin) {
+                    navigator.clipboard.writeText(pin);
+                    this.showToast(`Copied Universal PIN (${pin}) to clipboard`, 'success');
+                }
             });
         }
 
@@ -946,7 +1016,7 @@ class WebControllerApp {
 
         // Close dropdowns only when clicking outside
         window.addEventListener('click', (e) => {
-            if (e.target.closest('.dropdown-menu') || e.target.closest('.dropdown-wrapper') || e.target.closest('.header-more-container') || e.target.closest('.cyber-custom-select')) {
+            if (e.target.closest('.dropdown-menu') || e.target.closest('.dropdown-wrapper') || e.target.closest('.header-more-container') || e.target.closest('.cyber-custom-select') || e.target.closest('.custom-select-wrapper')) {
                 return;
             }
             document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
@@ -954,12 +1024,15 @@ class WebControllerApp {
             document.querySelectorAll('.cyber-select-trigger').forEach(t => t.classList.remove('active'));
         });
 
-        // Screen & Desktop Selection Clicks
+        // Screen & Desktop Selection Clicks (Header Menu)
         this.dom.screenSelectorMenu.addEventListener('click', (e) => {
             const item = e.target.closest('.dropdown-item');
             if (!item) return;
 
             this.dom.screenSelectorMenu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
+            if (this.dom.menuFloatScreens) {
+                this.dom.menuFloatScreens.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
+            }
             item.classList.add('active');
 
             const dispAttr = item.getAttribute('data-display');
@@ -970,23 +1043,85 @@ class WebControllerApp {
                     this.selectedDisplayIndex = 0;
                     this.isAutoFollow = true;
                     this.dom.screenSelectorLabel.textContent = 'Screen: Auto ▾';
+                    if (this.dom.btnFloatScreens) this.dom.btnFloatScreens.textContent = 'Screen ▾';
                 } else {
                     this.selectedDisplayIndex = parseInt(dispAttr, 10);
                     this.isAutoFollow = false;
                     this.dom.screenSelectorLabel.textContent = `Screen: Display ${this.selectedDisplayIndex + 1} ▾`;
+                    if (this.dom.btnFloatScreens) this.dom.btnFloatScreens.textContent = `Display ${this.selectedDisplayIndex + 1} ▾`;
                 }
             } else if (deskAttr !== null) {
                 this.selectedDesktopName = deskAttr;
                 this.dom.screenSelectorLabel.textContent = `Desktop: ${deskAttr} ▾`;
+                if (this.dom.btnFloatScreens) this.dom.btnFloatScreens.textContent = `${deskAttr} ▾`;
             }
 
             this.streamClient.sendSwitchDesktop(this.selectedDisplayIndex, this.isAutoFollow, this.selectedDesktopName);
             this.showToast(`Switched to ${this.dom.screenSelectorLabel.textContent.replace(' ▾', '')}`, 'info');
+            this.dom.screenSelectorMenu.classList.remove('show');
         });
 
-        // Quick Action Shortcuts Binding
+        // Floating Island Screen / Desktop Switcher Menu
+        if (this.dom.btnFloatScreens && this.dom.menuFloatScreens) {
+            this.dom.btnFloatScreens.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isShowing = this.dom.menuFloatScreens.classList.contains('show');
+                if (this.dom.menuFloatQuick) this.dom.menuFloatQuick.classList.remove('show');
+                this.dom.menuFloatScreens.classList.toggle('show', !isShowing);
+            });
+
+            this.dom.menuFloatScreens.addEventListener('click', (e) => {
+                const item = e.target.closest('.dropdown-item');
+                if (!item) return;
+                e.stopPropagation();
+
+                this.dom.menuFloatScreens.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
+                if (this.dom.screenSelectorMenu) {
+                    this.dom.screenSelectorMenu.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('active'));
+                }
+                item.classList.add('active');
+
+                const dispAttr = item.getAttribute('data-display');
+                const deskAttr = item.getAttribute('data-desktop');
+
+                if (dispAttr !== null) {
+                    if (dispAttr === 'auto') {
+                        this.selectedDisplayIndex = 0;
+                        this.isAutoFollow = true;
+                        this.dom.screenSelectorLabel.textContent = 'Screen: Auto ▾';
+                        this.dom.btnFloatScreens.textContent = 'Auto ▾';
+                    } else {
+                        this.selectedDisplayIndex = parseInt(dispAttr, 10);
+                        this.isAutoFollow = false;
+                        this.dom.screenSelectorLabel.textContent = `Screen: Display ${this.selectedDisplayIndex + 1} ▾`;
+                        this.dom.btnFloatScreens.textContent = `Display ${this.selectedDisplayIndex + 1} ▾`;
+                    }
+                } else if (deskAttr !== null) {
+                    this.selectedDesktopName = deskAttr;
+                    this.dom.screenSelectorLabel.textContent = `Desktop: ${deskAttr} ▾`;
+                    this.dom.btnFloatScreens.textContent = `${deskAttr} ▾`;
+                }
+
+                this.streamClient.sendSwitchDesktop(this.selectedDisplayIndex, this.isAutoFollow, this.selectedDesktopName);
+                this.showToast(`Switched to ${this.dom.btnFloatScreens.textContent.replace(' ▾', '')}`, 'info');
+                this.dom.menuFloatScreens.classList.remove('show');
+            });
+        }
+
+        // Floating Island Quick Key Injections Menu
+        if (this.dom.btnFloatQuick && this.dom.menuFloatQuick) {
+            this.dom.btnFloatQuick.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isShowing = this.dom.menuFloatQuick.classList.contains('show');
+                if (this.dom.menuFloatScreens) this.dom.menuFloatScreens.classList.remove('show');
+                this.dom.menuFloatQuick.classList.toggle('show', !isShowing);
+            });
+        }
+
+        // Quick Action Shortcuts Binding (for both Header and Island menus)
         document.querySelectorAll('.dropdown-item[data-action]').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const action = btn.getAttribute('data-action');
                 switch (action) {
                     case 'ctrl-alt-del': this.inputHandler.sendCtrlAltDel(); this.showToast('Sent Ctrl + Alt + Delete', 'info'); break;
@@ -997,19 +1132,31 @@ class WebControllerApp {
                     case 'win': this.inputHandler.sendWinKey(); this.showToast('Sent Windows Key', 'info'); break;
                     case 'esc': this.inputHandler.sendEscKey(); this.showToast('Sent Escape', 'info'); break;
                 }
+                document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
             });
         });
 
         // Fullscreen Toggle + Keyboard Lock API
         const toggleFullscreen = async () => {
             const container = document.getElementById('app-container');
+            const targetEl = document.documentElement;
+
             if (!document.fullscreenElement) {
                 try {
-                    await container.requestFullscreen();
+                    if (targetEl.requestFullscreen) {
+                        await targetEl.requestFullscreen();
+                    } else if (container.requestFullscreen) {
+                        await container.requestFullscreen();
+                    }
                     container.classList.add('is-fullscreen');
                     this.dom.floatingIsland.classList.remove('collapsed');
                     this.isIslandCollapsed = false;
                     this.startIslandAutoHide();
+
+                    // Synchronize native Windows shell (RemoteViewerForm)
+                    if (window.chrome?.webview?.postMessage) {
+                        window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: true });
+                    }
 
                     if ('keyboard' in navigator && typeof navigator.keyboard.lock === 'function') {
                         try {
@@ -1022,6 +1169,11 @@ class WebControllerApp {
                     await document.exitFullscreen();
                     container.classList.remove('is-fullscreen');
                     this.stopIslandAutoHide();
+
+                    if (window.chrome?.webview?.postMessage) {
+                        window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: false });
+                    }
+
                     if ('keyboard' in navigator && typeof navigator.keyboard.unlock === 'function') {
                         navigator.keyboard.unlock();
                     }
@@ -1038,9 +1190,15 @@ class WebControllerApp {
             if (!document.fullscreenElement) {
                 container.classList.remove('is-fullscreen');
                 this.stopIslandAutoHide();
+                if (window.chrome?.webview?.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: false });
+                }
             } else {
                 container.classList.add('is-fullscreen');
                 this.startIslandAutoHide();
+                if (window.chrome?.webview?.postMessage) {
+                    window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: true });
+                }
             }
         });
 
@@ -1241,6 +1399,78 @@ class WebControllerApp {
         this.renderAccountsDirectory();
     }
 
+    initIslandDraggable() {
+        const island = this.dom.floatingIsland;
+        if (!island) return;
+
+        let isDragging = false;
+        let startPointerX = 0;
+        let startPointerY = 0;
+        let startLeft = 0;
+        let startTop = 0;
+
+        const onPointerDown = (e) => {
+            if (e.button !== 0 && e.pointerType === 'mouse') return;
+            if (e.target.closest('button, input, select, .dropdown-menu, .cyber-select-menu')) return;
+
+            isDragging = true;
+            this.stopIslandAutoHide();
+            island.style.transition = 'none';
+            island.classList.add('is-dragging');
+
+            const rect = island.getBoundingClientRect();
+            startPointerX = e.clientX;
+            startPointerY = e.clientY;
+            startLeft = rect.left;
+            startTop = rect.top;
+
+            island.style.transform = 'none';
+            island.style.left = `${startLeft}px`;
+            island.style.top = `${startTop}px`;
+
+            try { island.setPointerCapture(e.pointerId); } catch { }
+            e.preventDefault();
+        };
+
+        const onPointerMove = (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startPointerX;
+            const dy = e.clientY - startPointerY;
+
+            let newLeft = startLeft + dx;
+            let newTop = startTop + dy;
+
+            const w = island.offsetWidth;
+            const h = island.offsetHeight;
+            const maxLeft = window.innerWidth - w - 8;
+            const maxTop = window.innerHeight - h - 8;
+
+            newLeft = Math.max(8, Math.min(newLeft, maxLeft));
+            newTop = Math.max(8, Math.min(newTop, maxTop));
+
+            island.style.left = `${newLeft}px`;
+            island.style.top = `${newTop}px`;
+        };
+
+        const onPointerUp = (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            island.style.transition = '';
+            island.classList.remove('is-dragging');
+
+            try { island.releasePointerCapture(e.pointerId); } catch { }
+
+            if (!this.isIslandPinned) {
+                this.startIslandAutoHide();
+            }
+        };
+
+        island.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp);
+    }
+
     startIslandAutoHide() {
         if (this.isIslandPinned) return;
         this.stopIslandAutoHide();
@@ -1266,6 +1496,9 @@ class WebControllerApp {
         modal.querySelectorAll('.modal-tab-pane').forEach(p => {
             p.classList.toggle('active', p.id === tabId);
         });
+        if (tabId === 'tab-enrolled-devices') {
+            this.refreshConnectionsModal();
+        }
         if (tabId === 'tab-enroll-new') {
             this.generateEnrollmentCode();
         }
@@ -1966,37 +2199,41 @@ class WebControllerApp {
             populateSelect(this.dom.deviceSelect);
             populateSelect(this.dom.sidebarSelectDevice);
 
-            // Populate custom cyber dropdown in three-dot menu
-            if (this.dom.menuCustomDevice) {
-                this.dom.menuCustomDevice.innerHTML = '';
+            // Populate custom cyber dropdown in three-dot menu and sidebar
+            const populateMenu = (menuEl) => {
+                if (!menuEl) return;
+                menuEl.innerHTML = '';
                 if (onlineDevices.length > 0) {
                     const sec = document.createElement('div');
                     sec.className = 'dropdown-section-title';
                     sec.textContent = '🟢 LIVE / ONLINE NOW';
-                    this.dom.menuCustomDevice.appendChild(sec);
+                    menuEl.appendChild(sec);
                     onlineDevices.forEach(dev => {
                         const btn = document.createElement('button');
                         btn.className = 'dropdown-item';
                         btn.setAttribute('data-device-id', dev.deviceId);
                         const pin = dev.shortPin ? ` [PIN: ${dev.shortPin}]` : '';
                         btn.innerHTML = `<span class="item-text">🟢 ${dev.hostname}${pin}</span><span class="item-badge live">ONLINE</span>`;
-                        this.dom.menuCustomDevice.appendChild(btn);
+                        menuEl.appendChild(btn);
                     });
                 }
                 if (offlineDevices.length > 0) {
                     const sec = document.createElement('div');
                     sec.className = 'dropdown-section-title';
                     sec.textContent = '⚪ PAST / OFFLINE SESSIONS';
-                    this.dom.menuCustomDevice.appendChild(sec);
+                    menuEl.appendChild(sec);
                     offlineDevices.forEach(dev => {
                         const btn = document.createElement('button');
                         btn.className = 'dropdown-item';
                         btn.setAttribute('data-device-id', dev.deviceId);
                         btn.innerHTML = `<span class="item-text">⚪ ${dev.hostname}</span><span class="item-badge">OFFLINE</span>`;
-                        this.dom.menuCustomDevice.appendChild(btn);
+                        menuEl.appendChild(btn);
                     });
                 }
-            }
+            };
+
+            populateMenu(this.dom.menuCustomDevice);
+            populateMenu(this.dom.menuSidebarCustomDevice);
 
             // Restore selection from previous state, persistent storage, or pick first online device
             const savedDevicePref = localStorage.getItem('erp_last_selected_device');
@@ -2026,6 +2263,7 @@ class WebControllerApp {
 
             this.syncKeyForSelectedDevice();
             this.updateHeaderTargetDisplay();
+            this.updateSidebarTargetDisplay();
             this.dom.btnConnect.disabled = false;
             if (this.dom.btnSidebarConnect) this.dom.btnSidebarConnect.disabled = false;
         } catch (err) {
@@ -2033,9 +2271,26 @@ class WebControllerApp {
         }
     }
 
-    async refreshConnectionsModal() {
-        await this.refreshDeviceList();
+    updateSidebarTargetDisplay() {
+        if (!this.dom.labelSidebarTriggerDevice) return;
+        if (!this.selectedDevice) {
+            this.dom.labelSidebarTriggerDevice.textContent = 'No target selected';
+            return;
+        }
+        const isOnline = this.selectedDevice.status === 'Online' || this.selectedDevice.status === 0;
+        const icon = isOnline ? '🟢' : '⚪';
+        const statusText = isOnline ? 'Live Online' : 'Offline';
+        this.dom.labelSidebarTriggerDevice.textContent = `${icon} ${this.selectedDevice.hostname} (${this.selectedDevice.deviceId}) — ${statusText}`;
+        if (this.dom.menuSidebarCustomDevice) {
+            this.dom.menuSidebarCustomDevice.querySelectorAll('.dropdown-item').forEach(b => {
+                b.classList.toggle('active', b.getAttribute('data-device-id') === this.selectedDevice.deviceId);
+            });
+        }
+    }
+
+    renderEnrolledEndpointsList() {
         const container = this.dom.connectionsGrid;
+        if (!container) return;
         container.innerHTML = '';
 
         if (!this.devices || this.devices.length === 0) {
@@ -2081,6 +2336,8 @@ class WebControllerApp {
                 if (this.dom.sidebarSelectDevice) this.dom.sidebarSelectDevice.value = dev.deviceId;
                 this.selectedDevice = dev;
                 this.syncKeyForSelectedDevice();
+                this.updateHeaderTargetDisplay();
+                this.updateSidebarTargetDisplay();
                 this.dom.modalBackdrop.classList.remove('show');
                 this.dom.modalConnections.classList.remove('show');
                 this.startSession();
@@ -2088,11 +2345,21 @@ class WebControllerApp {
 
             card.querySelector('.btn-card-copy-token').addEventListener('click', () => {
                 navigator.clipboard.writeText(savedKey);
-                this.showToast('Copied device access token', 'success');
+                this.showToast(`Copied token for ${dev.hostname}`, 'success');
             });
 
             container.appendChild(card);
         });
+    }
+
+    async refreshConnectionsModal() {
+        if (this.devices && this.devices.length > 0) {
+            this.renderEnrolledEndpointsList();
+        } else {
+            this.dom.connectionsGrid.innerHTML = '<div class="device-empty-state"><div class="mini-spinner"></div> Loading enrolled endpoints...</div>';
+        }
+        await this.refreshDeviceList();
+        this.renderEnrolledEndpointsList();
     }
 
     escapeHtml(str) {
@@ -2566,6 +2833,17 @@ class WebControllerApp {
         if (this.dom.btnSidebarConnect) this.dom.btnSidebarConnect.disabled = false;
         if (this.dom.btnSidebarDisconnect) this.dom.btnSidebarDisconnect.disabled = true;
 
+        // Wipe canvas context completely to remove stale frozen frame from previous session
+        if (this.canvas) {
+            const ctx = this.canvas.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                ctx.fillStyle = '#07090e';
+                ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+            this.canvas.style.display = 'none';
+        }
+
         this.dom.placeholder.style.display = 'flex';
         this.dom.floatDeviceName.textContent = 'No Session';
         this.setBadge('idle', 'IDLE — No Session Active');
@@ -2582,6 +2860,7 @@ class WebControllerApp {
 
     onStreamStatusChange(status, message) {
         if (status === 'connected') {
+            if (this.canvas) this.canvas.style.display = 'block';
             this.setBadge('connected', `Streaming: ${this.selectedDevice ? this.selectedDevice.hostname : 'Host'}`);
             this.dom.placeholder.style.display = 'none';
             this.dom.btnConnect.disabled = true;
@@ -2605,6 +2884,15 @@ class WebControllerApp {
                 this.dom.sidebarHudStatus.className = 'hud-val';
             }
         } else {
+            if (this.canvas) {
+                const ctx = this.canvas.getContext('2d');
+                if (ctx) {
+                    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    ctx.fillStyle = '#07090e';
+                    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                }
+                this.canvas.style.display = 'none';
+            }
             this.setBadge('idle', message);
             this.dom.placeholder.style.display = 'flex';
             this.dom.btnConnect.disabled = false;
