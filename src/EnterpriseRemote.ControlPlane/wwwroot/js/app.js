@@ -1789,10 +1789,23 @@ class WebControllerApp {
      * to the local origin / 127.0.0.1:5293 so the Controller UI remains 100% responsive and connected!
      */
     async apiFetch(endpoint, options = {}) {
+        const fetchWithTimeout = async (url, opts, ms = 3000) => {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), ms);
+            try {
+                const response = await fetch(url, { ...opts, signal: opts.signal || controller.signal });
+                clearTimeout(timer);
+                return response;
+            } catch (e) {
+                clearTimeout(timer);
+                throw e;
+            }
+        };
+
         // 1. Try configured serverUrl
         if (this.serverUrl) {
             try {
-                const resp = await fetch(`${this.serverUrl}${endpoint}`, options);
+                const resp = await fetchWithTimeout(`${this.serverUrl}${endpoint}`, options, 3000);
                 if (resp && (resp.ok || (resp.status >= 400 && resp.status < 500))) return resp;
             } catch (err) {
                 console.warn(`[Gateway] Fetch to ${this.serverUrl}${endpoint} failed (${err.message}). Trying fallback origin...`);
@@ -1802,7 +1815,7 @@ class WebControllerApp {
         // 2. Fallback to current browser window origin if different
         if (typeof window !== 'undefined' && window.location?.origin?.startsWith('http') && window.location.origin !== this.serverUrl) {
             try {
-                const resp = await fetch(`${window.location.origin}${endpoint}`, options);
+                const resp = await fetchWithTimeout(`${window.location.origin}${endpoint}`, options, 2500);
                 if (resp && (resp.ok || (resp.status >= 400 && resp.status < 500))) return resp;
             } catch { }
         }
@@ -1810,7 +1823,7 @@ class WebControllerApp {
         // 3. Fallback to local loopback (127.0.0.1:5293)
         if (this.serverUrl !== 'http://127.0.0.1:5293') {
             try {
-                const resp = await fetch(`http://127.0.0.1:5293${endpoint}`, options);
+                const resp = await fetchWithTimeout(`http://127.0.0.1:5293${endpoint}`, options, 2000);
                 if (resp && (resp.ok || (resp.status >= 400 && resp.status < 500))) return resp;
             } catch { }
         }
@@ -2158,17 +2171,16 @@ class WebControllerApp {
         }
         const devId = this.selectedDevice.deviceId;
         let token = '';
-        const savedMasterKey = localStorage.getItem('erp_active_master_key');
-        if (savedMasterKey) {
-            token = savedMasterKey;
-        } else if (this.permanentTokens[devId]) {
+        if (this.permanentTokens[devId]) {
             token = this.permanentTokens[devId];
-        } else if (localStorage.getItem('erp_saved_key')) {
-            token = localStorage.getItem('erp_saved_key');
         } else if (this.selectedDevice.shortPin) {
             token = this.selectedDevice.shortPin;
         } else if (this.selectedDevice.permanentAccessToken) {
             token = this.selectedDevice.permanentAccessToken;
+        } else if (localStorage.getItem('erp_active_master_key')) {
+            token = localStorage.getItem('erp_active_master_key');
+        } else if (localStorage.getItem('erp_saved_key')) {
+            token = localStorage.getItem('erp_saved_key');
         }
         this.dom.keyInput.value = token;
         if (this.dom.sidebarTxtKey) this.dom.sidebarTxtKey.value = token;
@@ -2698,7 +2710,7 @@ class WebControllerApp {
                 body: JSON.stringify({
                     AdminUserId: this.currentUser ? this.currentUser.userId : 'USR-ADMIN-01',
                     GroupId: 'GRP-CORP-DESKTOPS',
-                    TtlMinutes: 60,
+                    TtlMinutes: 1440,
                     AttendedRequired: false
                 })
             });
@@ -2707,8 +2719,16 @@ class WebControllerApp {
             const data = await resp.json();
 
             const invCode = data.invitationCode || data.plainCode || data.PlainCode || data.invitationId || data.InvitationId || 'INV-AUTO-PAIR';
+            const shortPin = data.shortPin || data.ShortPin || (invCode.includes('-') ? invCode.split('-').pop() : '1234');
             this.dom.wizardCode.textContent = invCode;
-            this.dom.wizardPin.textContent = data.shortPin || data.ShortPin || (invCode.includes('-') ? invCode.split('-').pop() : '1234');
+            this.dom.wizardPin.textContent = shortPin;
+
+            // Automatically bind new PIN to currently selected target device so connection keys stay 100% coordinated
+            if (this.selectedDevice) {
+                this.selectedDevice.shortPin = shortPin;
+                this.savePermanentToken(this.selectedDevice.deviceId, shortPin);
+                this.syncKeyForSelectedDevice();
+            }
 
             // If local controller is currently on localhost, Remote PC cannot reach 127.0.0.1!
             // Auto-substitute the active public tunnel URL or primary LAN IP for the remote device!
@@ -2826,9 +2846,11 @@ class WebControllerApp {
         try {
             const enteredKey = this.dom.keyInput.value.trim() || 
                                (this.dom.sidebarTxtKey ? this.dom.sidebarTxtKey.value.trim() : '') ||
+                               (this.selectedDevice ? this.permanentTokens[this.selectedDevice.deviceId] : null) ||
+                               (this.selectedDevice ? this.selectedDevice.shortPin : null) ||
+                               (this.selectedDevice ? this.selectedDevice.permanentAccessToken : null) ||
                                localStorage.getItem('erp_active_master_key') ||
                                localStorage.getItem('erp_saved_key') ||
-                               this.selectedDevice.permanentAccessToken || 
                                null;
             if (enteredKey) {
                 localStorage.setItem('erp_saved_key', enteredKey);
@@ -2900,9 +2922,11 @@ class WebControllerApp {
 
         try {
             const enteredKey = (this.dom.keyInput?.value || this.dom.sidebarTxtKey?.value || '').trim() ||
+                               (this.selectedDevice ? this.permanentTokens[this.selectedDevice.deviceId] : null) ||
+                               (this.selectedDevice ? this.selectedDevice.shortPin : null) ||
+                               (this.selectedDevice ? this.selectedDevice.permanentAccessToken : null) ||
                                localStorage.getItem('erp_active_master_key') ||
                                localStorage.getItem('erp_saved_key') ||
-                               this.selectedDevice.permanentAccessToken ||
                                null;
 
             const sessionPayload = {

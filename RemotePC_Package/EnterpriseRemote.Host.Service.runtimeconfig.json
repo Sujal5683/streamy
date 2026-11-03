@@ -5,11 +5,15 @@
       {
         "name": "Microsoft.NETCore.App",
         "version": "8.0.30"
+      },
+      {
+        "name": "Microsoft.WindowsDesktop.App",
+        "version": "8.0.30"
       }
     ],
     "configProperties": {
       "System.Reflection.Metadata.MetadataUpdater.IsSupported": false,
-      "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": false
+      "System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization": true
     }
   }
 }

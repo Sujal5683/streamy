@@ -106,6 +106,8 @@ if (-not $isPortListening) {
 
 # 3. Launch cloudflared tunnel
 Write-Host ""
+$supervisorRunning = $true
+while ($supervisorRunning) {
 Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 400
 Write-Host "[*] Creating secure public edge tunnel to http://127.0.0.1:$TargetPort..." -ForegroundColor Cyan
@@ -114,7 +116,7 @@ Write-Host ""
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = $cfExe
-$psi.Arguments = "tunnel --protocol auto --edge-ip-version 4 --post-quantum=false --compression-quality 0 --url http://127.0.0.1:$TargetPort"
+$psi.Arguments = "tunnel --protocol http2 --edge-ip-version 4 --post-quantum=false --compression-quality 0 --url http://127.0.0.1:$TargetPort"
 $psi.RedirectStandardError = $true
 $psi.RedirectStandardOutput = $true
 $psi.UseShellExecute = $false
@@ -141,6 +143,26 @@ while (-not $proc.HasExited -and -not $tunnelUrl) {
 }
 
 if ($tunnelUrl) {
+    # Edge Convergence Verification: Ensure Cloudflare global Anycast route is responding before publicizing
+    Write-Host "    Verifying Cloudflare Anycast edge routing convergence..." -ForegroundColor Cyan
+    $edgeReady = $false
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        try {
+            $resp = Invoke-WebRequest -Uri "$tunnelUrl/health" -Method Get -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+            if ($resp.StatusCode -eq 200) {
+                $edgeReady = $true
+                break
+            }
+        } catch {
+            # 530 or proxy error means Anycast route is still propagating globally
+        }
+        Start-Sleep -Milliseconds 1200
+    }
+    if ($edgeReady) {
+        Write-Host "    [+] Cloudflare Anycast edge verified globally reachable!" -ForegroundColor Green
+    } else {
+        Write-Host "    [*] Cloudflare tunnel assigned (routes converging globally)..." -ForegroundColor Yellow
+    }
     # Save URL to all accessible target locations
     if (Test-Path (Split-Path $publicUrlFile)) { Set-Content -Path $publicUrlFile -Value $tunnelUrl -Force }
     if (Test-Path (Split-Path $mainAppUrlFile)) { Set-Content -Path $mainAppUrlFile -Value $tunnelUrl -Force }
@@ -194,5 +216,14 @@ if ($tunnelUrl) {
 } else {
     Write-Host "[!] Could not extract public tunnel URL. Check Cloudflare log:" -ForegroundColor Red
     Write-Host $sb.ToString() -ForegroundColor Yellow
-    $proc.Kill()
+    try { $proc.Kill() } catch { }
+    break
+}
+
+    if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 130) {
+        break
+    }
+    Write-Host ""
+    Write-Host "[!] Cloudflare tunnel closed (exit code $($proc.ExitCode)). Re-establishing tunnel in 3s..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 3
 }

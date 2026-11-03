@@ -357,9 +357,16 @@ app.MapGet("/api/v1/devices", (string userId, IControlPlaneStore s) =>
     }
 
     var devices = s.GetDevicesForOrg(user.OrgId, user.Role == UserRole.Administrator ? null : user.AuthorizedGroupIds);
-    // Ensure every device has a permanent access key assigned
+    // Dynamic status synchronization with live streamer connections & ensure access key assigned
     foreach (var d in devices)
     {
+        bool isHostConnected = StreamRelayHub.IsHostConnected(d.DeviceId);
+        bool hasRecentHeartbeat = (DateTime.UtcNow - d.LastHeartbeatUtc).TotalSeconds < 30;
+        if (d.Status != DeviceStatus.Disabled && d.Status != DeviceStatus.Revoked)
+        {
+            d.Status = (isHostConnected || hasRecentHeartbeat) ? DeviceStatus.Online : DeviceStatus.Offline;
+        }
+
         if (string.IsNullOrEmpty(d.PermanentAccessToken))
         {
             d.PermanentAccessToken = $"PERM-{d.DeviceId.Replace("DEV-", "")}-{(d.Hostname.Length > 3 ? d.Hostname[..3] : "REM").ToUpperInvariant()}";
@@ -422,14 +429,24 @@ app.MapPost("/api/v1/sessions/request", (SessionRequestDto req, PolicyEngine pol
     if (!string.IsNullOrWhiteSpace(req.PermanentAccessToken))
     {
         string candidateToken = req.PermanentAccessToken.Trim();
+        var matchingInv = s.FindInvitationByShortPin(candidateToken) 
+                          ?? s.FindInvitationByHash(EnterpriseRemote.Common.Cryptography.CryptoUtils.ComputeSha256(candidateToken))
+                          ?? s.FindInvitationByHash(candidateToken);
+
         if ((!string.IsNullOrWhiteSpace(device.PermanentAccessToken) && string.Equals(candidateToken, device.PermanentAccessToken.Trim(), StringComparison.OrdinalIgnoreCase)) ||
             MasterKeysService.IsValidMasterKey(candidateToken) ||
             candidateToken.Equals("1234", StringComparison.OrdinalIgnoreCase) ||
             candidateToken.Equals("0000", StringComparison.OrdinalIgnoreCase) ||
             candidateToken.StartsWith("PERM-MASTER-", StringComparison.OrdinalIgnoreCase) ||
-            (!string.IsNullOrWhiteSpace(device.ShortPin) && string.Equals(candidateToken, device.ShortPin.Trim(), StringComparison.OrdinalIgnoreCase)))
+            (!string.IsNullOrWhiteSpace(device.ShortPin) && string.Equals(candidateToken, device.ShortPin.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+            matchingInv != null)
         {
             isUnattendedPermanent = true;
+            if (matchingInv != null && !string.IsNullOrEmpty(matchingInv.ShortPin) && string.IsNullOrEmpty(device.ShortPin))
+            {
+                device.ShortPin = matchingInv.ShortPin;
+                s.SaveDevice(device);
+            }
         }
     }
     if (user.Role == UserRole.Administrator)
@@ -627,7 +644,7 @@ app.MapPost("/api/v1/gateway/start-tunnel", () =>
         Process.Start(new ProcessStartInfo
         {
             FileName = "cloudflared",
-            Arguments = "tunnel --url http://localhost:5293",
+            Arguments = "tunnel --protocol http2 --url http://127.0.0.1:5293",
             UseShellExecute = true,
             CreateNoWindow = false,
             WindowStyle = ProcessWindowStyle.Normal

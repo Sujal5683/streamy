@@ -432,6 +432,13 @@ public static class Program
             File.WriteAllText(LocalFallbackIdentityFile, json);
         }
         catch { }
+
+        // 5. Also sync server_url.txt for live dynamic hot-reloading
+        if (!string.IsNullOrEmpty(identity.ControlPlaneUrl))
+        {
+            try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "server_url.txt"), identity.ControlPlaneUrl.Trim()); } catch { }
+            try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "server_url.txt"), identity.ControlPlaneUrl.Trim()); } catch { }
+        }
     }
 
     public static StoredDeviceIdentity? LoadIdentity()

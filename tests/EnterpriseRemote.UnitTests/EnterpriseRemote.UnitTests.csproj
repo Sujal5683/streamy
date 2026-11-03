@@ -19,10 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\EnterpriseRemote.Common\EnterpriseRemote.Common.csproj" />
     <ProjectReference Include="..\..\src\EnterpriseRemote.Host.UserAgent\EnterpriseRemote.Host.UserAgent.csproj" />
-    <ProjectReference Include="..\..\src\EnterpriseRemote.Host.Service\EnterpriseRemote.Host.Service.csproj">
-      <CopyLocal>true</CopyLocal>
-      <Private>true</Private>
-    </ProjectReference>
+    <ProjectReference Include="..\..\src\EnterpriseRemote.Host.Service\EnterpriseRemote.Host.Service.csproj" />
     <ProjectReference Include="..\..\src\EnterpriseRemote.Controller\EnterpriseRemote.Controller.csproj" />
     <ProjectReference Include="..\..\src\EnterpriseRemote.ControlPlane\EnterpriseRemote.ControlPlane.csproj" />
   </ItemGroup>
@@ -31,7 +28,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <Target Name="CopyHostServiceDll" AfterTargets="AfterBuild;PostBuildEvent" BeforeTargets="VSTest">
-    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\src\EnterpriseRemote.Host.Service\bin\$(Configuration)\net8.0-windows\EnterpriseRemote.Host.Service.dll" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="false" />
-  </Target>
+  <ItemGroup>
+    <None Include="..\..\src\EnterpriseRemote.Host.Service\bin\$(Configuration)\net8.0-windows\EnterpriseRemote.Host.Service.dll" Link="EnterpriseRemote.Host.Service.dll">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

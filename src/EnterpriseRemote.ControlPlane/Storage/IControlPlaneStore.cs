@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using EnterpriseRemote.Common.Cryptography;
 using EnterpriseRemote.Common.Models;
 
 namespace EnterpriseRemote.ControlPlane.Storage;
@@ -263,9 +264,19 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
     public EnrolledDevice? GetDeviceByPermanentToken(string permToken)
     {
         if (string.IsNullOrWhiteSpace(permToken)) return null;
-        return _devices.Values.FirstOrDefault(d =>
+        string trimmed = permToken.Trim();
+
+        // 1. Direct match by PermanentAccessToken
+        var dev = _devices.Values.FirstOrDefault(d =>
             !string.IsNullOrWhiteSpace(d.PermanentAccessToken) &&
-            string.Equals(d.PermanentAccessToken.Trim(), permToken.Trim(), StringComparison.OrdinalIgnoreCase));
+            string.Equals(d.PermanentAccessToken.Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
+        if (dev != null) return dev;
+
+        // 2. Direct match by ShortPin
+        dev = _devices.Values.FirstOrDefault(d =>
+            !string.IsNullOrWhiteSpace(d.ShortPin) &&
+            string.Equals(d.ShortPin.Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
+        return dev;
     }
 
     public EnrolledDevice? GetDeviceByHostname(string hostname)
