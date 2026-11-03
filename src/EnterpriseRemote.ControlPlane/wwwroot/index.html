@@ -188,6 +188,14 @@
                         <button id="btn-header-policy" class="dropdown-item">
                             <span>⚙️ Global Security Policy</span>
                         </button>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-section-title">PROCESS & LIFECYCLE</div>
+                        <button id="btn-header-reset-services" class="dropdown-item" type="button" title="Flushes all streaming buffers and re-syncs device states">
+                            <span>🔄 Reset & Refresh Connection</span>
+                        </button>
+                        <button id="btn-header-terminate-all" class="dropdown-item dropdown-item-danger" type="button" title="Completely terminates all background services, tunnels, and exits the controller">
+                            <span>🛑 Terminate Background Processes & Exit</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1213,6 +1221,19 @@
                         <div class="diag-item">
                             <span class="diag-label">Total Data Transferred:</span>
                             <span id="diag-bytes" class="diag-val">0 KB</span>
+                        </div>
+                        <div class="dropdown-divider" style="margin: 16px 0;"></div>
+                        <div class="form-section-title" style="margin-bottom: 6px;">PROCESS & BACKGROUND SERVICES</div>
+                        <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.4;">
+                            Instantly clear stuck frames/sockets, or completely terminate all background server processes (<span class="code-badge">ControlPlane.exe</span>, <span class="code-badge">Controller.exe</span>, tunnels):
+                        </p>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button id="btn-diag-reset-relay" class="cyber-btn cyber-btn-outline" type="button" style="flex: 1;" title="Flushes all streaming buffers and re-syncs device states">
+                                🔄 Flush & Reset Streaming Relay
+                            </button>
+                            <button id="btn-diag-terminate-all" class="cyber-btn cyber-btn-danger" type="button" style="flex: 1;" title="Completely kills ControlPlane.exe, Controller.exe, and active tunnels">
+                                🛑 Terminate All Background Processes & Exit
+                            </button>
                         </div>
                     </div>
                 </div>

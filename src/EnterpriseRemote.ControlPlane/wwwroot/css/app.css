@@ -973,6 +973,16 @@ canvas#viewportCanvas {
     font-weight: 600;
 }
 
+.dropdown-item-danger {
+    color: #f87171 !important;
+}
+
+.dropdown-item-danger:hover {
+    background: rgba(239, 68, 68, 0.18) !important;
+    border-color: rgba(239, 68, 68, 0.45) !important;
+    color: #ffffff !important;
+}
+
 .dropdown-shortcut {
     font-size: 10px;
     color: var(--text-muted);

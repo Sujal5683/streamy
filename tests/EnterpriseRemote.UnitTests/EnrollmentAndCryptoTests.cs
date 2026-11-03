@@ -216,4 +216,54 @@ public class EnrollmentAndCryptoTests
         Assert.StartsWith("DEV-", res.DeviceId);
         Assert.Equal("1234", res.PermanentAccessToken);
     }
+
+    [Fact]
+    public void EnrollmentService_ReEnrollmentSameHostname_ReusesDeviceIdAndUpdatesCredentials()
+    {
+        var store = new MemoryControlPlaneStore();
+        var enrollmentSvc = new EnrollmentService(store);
+        var (_, devPubKey1) = CryptoUtils.GenerateEcdsaKeyPair();
+        var (_, devPubKey2) = CryptoUtils.GenerateEcdsaKeyPair();
+
+        // 1. Initial enrollment via PIN 1234 on same Wi-Fi
+        var res1 = enrollmentSvc.RedeemInvitation(
+            "1234",
+            "LAPTOP-REMOTE-DEV",
+            "Windows 11 Pro",
+            "00:11:22:33:44:55",
+            devPubKey1,
+            "192.168.1.100");
+
+        Assert.True(res1.Success);
+        string deviceId1 = res1.DeviceId!;
+
+        // 2. Switched to Cloudflare Tunnel and re-enrolled with Master Key
+        var res2 = enrollmentSvc.RedeemInvitation(
+            "PERM-MASTER-SWITCH-TEST",
+            "laptop-remote-dev", // case insensitive match
+            "Windows 11 Pro",
+            "00:11:22:33:44:55",
+            devPubKey2,
+            "192.168.1.100");
+
+        Assert.True(res2.Success);
+        string deviceId2 = res2.DeviceId!;
+
+        // Must reuse the exact same canonical DeviceId
+        Assert.Equal(deviceId1, deviceId2);
+
+        // Store must contain exactly 1 device, NOT 2 duplicates
+        var devices = store.GetDevicesForOrg("ORG-ENTERPRISE");
+        Assert.Single(devices);
+
+        var device = store.GetDevice(deviceId1);
+        Assert.NotNull(device);
+        Assert.Equal("PERM-MASTER-SWITCH-TEST", device.PermanentAccessToken);
+        Assert.Equal(devPubKey2, device.PublicKeyPem);
+
+        // Lookup by hostname must also succeed
+        var byHost = store.GetDeviceByHostname("LAPTOP-REMOTE-DEV");
+        Assert.NotNull(byHost);
+        Assert.Equal(deviceId1, byHost.DeviceId);
+    }
 }

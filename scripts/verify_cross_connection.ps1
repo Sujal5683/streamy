@@ -44,6 +44,15 @@ try {
     $wsViewer.ConnectAsync($viewerUri, $cts.Token).GetAwaiter().GetResult()
     Write-Host "  [OK] Viewer WebSocket connected! State: $($wsViewer.State)"
 
+    # 4b. Verify Initial HostStatus (0x26) Telemetry Packet
+    $initBuffer = New-Object byte[] 4096
+    $initResult = $wsViewer.ReceiveAsync([System.ArraySegment[byte]]::new($initBuffer), $cts.Token).GetAwaiter().GetResult()
+    if ($initResult.Count -ge 2 -and $initBuffer[0] -eq 0x26) {
+        Write-Host "  [OK] Initial HostStatus (0x26) packet received! HostOnline: $($initBuffer[1] -eq 1)"
+    } else {
+        Write-Host "  [NOTE] Initial message count=$($initResult.Count), opcode=0x$("{0:X2}" -f $initBuffer[0])"
+    }
+
     # 5. Test Bi-directional Cross-Connection
     Write-Host "`n[5/5] Testing Bi-directional Data Exchange..."
     

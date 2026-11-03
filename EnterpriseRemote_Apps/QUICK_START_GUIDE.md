@@ -139,7 +139,15 @@ To allow the remote laptop to be accessed even before any user logs in, at the W
 
 ---
 
-## 🔧 Troubleshooting Checklist
+## 🔧 Troubleshooting & Network Switching Checklist
+
+| Issue | Resolution |
+|---|---|
+| **Switching Networks (Wi-Fi ↔ Cloudflare ↔ Tailscale)** | Simply re-run `1_CLICK_ENROLL_REMOTE_PC.bat` on the Remote PC with the new Gateway URL (or switch the Gateway Chip in the Controller UI). Previous streamer processes are terminated cleanly to release GPU DXGI duplication handles, and the connection reconnects instantly. |
+| **Deterministic Device Deduplication** | Re-enrolling never creates duplicate "ghost" devices. The Control Plane reuses the canonical device record based on your machine's hostname, ensuring the Controller UI always points to the live workstation. |
+| **Key Hierarchy & Coordination** | • **Universal PIN**: `1234` or `0000` for fast unattended access.<br>• **Permanent Master Key**: `PERM-MASTER-...` configured once works across all enrolled machines.<br>• **Device Token**: Unique `PERM-XXXX` saved in `device_identity.json`.<br>All keys coordinate seamlessly without lockouts. |
+| **Terminal Output on Enrollment** | `1_CLICK_ENROLL_REMOTE_PC.bat` keeps the terminal open with live progress messages (`[*] Connecting...`, `[+] Key validated`, `[+] Enrolled successfully`), followed by a 5-second countdown on success or a pause on failure. |
+| **Host Offline Status in Viewer** | If the viewer connects before the Remote PC starts streaming, the viewer HUD displays `[Waiting for Remote PC (Host Offline)]` rather than freezing, and transitions to live video the moment the streamer starts. |
 
 | Issue | Resolution |
 |---|---|

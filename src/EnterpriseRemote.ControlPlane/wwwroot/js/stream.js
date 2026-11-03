@@ -10,7 +10,8 @@ import {
     serializeSwitchDesktop,
     tryDeserializeLatencyPong,
     tryDeserializeCursorUpdate,
-    tryDeserializeDesktopList
+    tryDeserializeDesktopList,
+    tryDeserializeHostStatus
 } from './protocol.js';
 
 export class RemoteStreamClient {
@@ -51,6 +52,7 @@ export class RemoteStreamClient {
 
         // Callbacks
         this.onStatusChange = options.onStatusChange || (() => {});
+        this.onHostStatus = options.onHostStatus || (() => {});
         this.onTelemetry = options.onTelemetry || (() => {});
         this.onCursorChange = options.onCursorChange || (() => {});
         this.onDesktopList = options.onDesktopList || (() => {});
@@ -202,6 +204,15 @@ export class RemoteStreamClient {
             const list = tryDeserializeDesktopList(view);
             if (list) {
                 this.onDesktopList(list);
+            }
+            return;
+        }
+
+        // 2C. Host Status Telemetry packet (0x26, 2 bytes)
+        if (len === 2 && firstByte === InputEventType.HostStatus) {
+            const isLive = tryDeserializeHostStatus(view);
+            if (isLive !== null) {
+                this.onHostStatus(isLive);
             }
             return;
         }

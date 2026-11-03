@@ -38,6 +38,7 @@ public sealed class RemoteViewerForm : Form
     private FormBorderStyle _prevBorderStyle;
     private FormWindowState _prevWindowState;
     private Rectangle _prevBounds;
+    private static Process? _controlPlaneProcess;
     private const string TargetServerUrl = "http://127.0.0.1:5293";
 
     public RemoteViewerForm()
@@ -85,6 +86,7 @@ public sealed class RemoteViewerForm : Form
                 _trayIcon.Dispose();
                 _trayIcon = null;
             }
+            TerminateAllBackgroundProcesses();
         };
     }
 
@@ -110,6 +112,7 @@ public sealed class RemoteViewerForm : Form
             contextMenu.Items.Add(new ToolStripMenuItem("Exit Application", null, (_, _) =>
             {
                 if (_trayIcon != null) _trayIcon.Visible = false;
+                TerminateAllBackgroundProcesses();
                 Application.Exit();
             }));
 
@@ -316,6 +319,19 @@ public sealed class RemoteViewerForm : Form
                                 BeginInvoke(ToggleFullScreen);
                             }
                         }
+                        else if (msgType.Equals("shutdown-all", StringComparison.OrdinalIgnoreCase))
+                        {
+                            BeginInvoke(() =>
+                            {
+                                if (_trayIcon != null) _trayIcon.Visible = false;
+                                TerminateAllBackgroundProcesses();
+                                Application.Exit();
+                            });
+                        }
+                        else if (msgType.Equals("reload-ui", StringComparison.OrdinalIgnoreCase))
+                        {
+                            BeginInvoke(() => _webView.CoreWebView2?.Reload());
+                        }
                     }
                 }
                 catch { }
@@ -394,7 +410,7 @@ public sealed class RemoteViewerForm : Form
                     CreateNoWindow = true,
                     WindowStyle = ProcessWindowStyle.Hidden
                 };
-                Process.Start(psi);
+                _controlPlaneProcess = Process.Start(psi);
 
                 // Wait up to 5 seconds for server to bind port
                 for (int i = 0; i < 25; i++)
@@ -410,6 +426,35 @@ public sealed class RemoteViewerForm : Form
             }
             catch { }
         }
+    }
+
+    public static void TerminateAllBackgroundProcesses()
+    {
+        try
+        {
+            if (_controlPlaneProcess != null && !_controlPlaneProcess.HasExited)
+            {
+                try { _controlPlaneProcess.Kill(true); } catch { }
+                _controlPlaneProcess = null;
+            }
+        }
+        catch { }
+
+        try
+        {
+            foreach (var procName in new[] { "EnterpriseRemote.ControlPlane", "cloudflared" })
+            {
+                foreach (var p in Process.GetProcessesByName(procName))
+                {
+                    try
+                    {
+                        p.Kill(true);
+                    }
+                    catch { }
+                }
+            }
+        }
+        catch { }
     }
 
     private void ShowWebView2FallbackDialog(Exception ex)

@@ -6,11 +6,12 @@ param(
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-if (Test-Path $ZipPath) {
-    Remove-Item $ZipPath -Force
+$tempZip = "$ZipPath.tmp"
+if (Test-Path $tempZip) {
+    Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
 }
 
-$zip = [System.IO.Compression.ZipFile]::Open($ZipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+$zip = [System.IO.Compression.ZipFile]::Open($tempZip, [System.IO.Compression.ZipArchiveMode]::Create)
 try {
     $files = Get-ChildItem -Path $SourceDir -Recurse -File
     foreach ($file in $files) {
@@ -30,10 +31,14 @@ try {
             $entryStream.Close()
         }
     }
-    Write-Output "Zip successfully created at: $ZipPath"
 } finally {
-    $zip.Dispose()
+    if ($zip) {
+        $zip.Dispose()
+    }
 }
 
+Move-Item -Path $tempZip -Destination $ZipPath -Force
+
 $info = Get-Item $ZipPath
+Write-Output "Zip successfully created at: $ZipPath"
 Write-Output "Size: $($info.Length) bytes, LastWriteTime: $($info.LastWriteTime)"

@@ -27,13 +27,29 @@ public static class Program
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool FreeConsole();
 
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(int dwProcessId);
+    private const int ATTACH_PARENT_PROCESS = -1;
+
     public static async Task<int> Main(string[] args)
     {
         string serverUrl = "http://127.0.0.1:5293";
         string command = args.Length > 0 ? args[0].ToLowerInvariant() : "--run";
 
         bool keepConsole = args.Any(a => a.Equals("--console", StringComparison.OrdinalIgnoreCase) || a.Equals("--debug", StringComparison.OrdinalIgnoreCase) || a.Equals("--enroll", StringComparison.OrdinalIgnoreCase) || a.Equals("--install", StringComparison.OrdinalIgnoreCase) || a.Equals("--uninstall", StringComparison.OrdinalIgnoreCase));
-        if (!keepConsole && command == "--run")
+        if (keepConsole)
+        {
+            try
+            {
+                AttachConsole(ATTACH_PARENT_PROCESS);
+                var stdout = Console.OpenStandardOutput();
+                var writer = new StreamWriter(stdout, System.Text.Encoding.UTF8) { AutoFlush = true };
+                Console.SetOut(writer);
+                Console.SetError(writer);
+            }
+            catch { }
+        }
+        else if (command == "--run")
         {
             try { FreeConsole(); } catch { }
         }
@@ -214,6 +230,13 @@ public static class Program
         int heartbeatCount = 0;
         while (!cts.IsCancellationRequested)
         {
+            // KILL SWITCH: If user ran STOP or kill switch was activated, shut down immediately and do not restart UserAgent!
+            if (IsKillSwitchActive())
+            {
+                Console.WriteLine("[!] Remote Streaming KILL SWITCH is active. Terminating Host.Service cleanly.");
+                break;
+            }
+
             try
             {
                 heartbeatCount++;
@@ -232,7 +255,7 @@ public static class Program
                 }
             }
 
-            // Interactive watchdog: if running in user desktop session, ensure UserAgent stays alive
+            // Interactive watchdog: if running in user desktop session and kill switch is NOT active, ensure UserAgent stays alive
             if (heartbeatCount % 2 == 0)
             {
                 EnsureUserAgentRunning();
@@ -251,10 +274,60 @@ public static class Program
         return 0;
     }
 
+    public static bool IsKillSwitchActive()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string flag1 = Path.Combine(programData, "EnterpriseRemote", "kill_switch.flag");
+            string flag2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kill_switch.flag");
+            string flag3 = Path.Combine(Directory.GetCurrentDirectory(), "kill_switch.flag");
+            return File.Exists(flag1) || File.Exists(flag2) || File.Exists(flag3);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static void ActivateKillSwitch()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string dir = Path.Combine(programData, "EnterpriseRemote");
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "kill_switch.flag"), DateTime.UtcNow.ToString("o"));
+            File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kill_switch.flag"), DateTime.UtcNow.ToString("o"));
+        }
+        catch { }
+    }
+
+    public static void ClearKillSwitch()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string flag1 = Path.Combine(programData, "EnterpriseRemote", "kill_switch.flag");
+            string flag2 = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kill_switch.flag");
+            string flag3 = Path.Combine(Directory.GetCurrentDirectory(), "kill_switch.flag");
+            if (File.Exists(flag1)) File.Delete(flag1);
+            if (File.Exists(flag2)) File.Delete(flag2);
+            if (File.Exists(flag3)) File.Delete(flag3);
+        }
+        catch { }
+    }
+
     private static void EnsureUserAgentRunning()
     {
         try
         {
+            // KILL SWITCH GUARD: Never respawn UserAgent if STOP was requested
+            if (IsKillSwitchActive())
+            {
+                return;
+            }
+
             if (Process.GetCurrentProcess().SessionId != 0)
             {
                 var running = Process.GetProcessesByName("EnterpriseRemote.Host.UserAgent");

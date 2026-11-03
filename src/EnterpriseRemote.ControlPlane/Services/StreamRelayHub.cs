@@ -45,10 +45,46 @@ public static class StreamRelayHub
 {
     private static readonly ConcurrentDictionary<string, DeviceStreamSession> _sessions = new();
 
+    public static void BroadcastHostStatus(string deviceId, bool isConnected)
+    {
+        if (_sessions.TryGetValue(deviceId, out var session))
+        {
+            byte[] statusPacket = new byte[] { 0x26, (byte)(isConnected ? 1 : 0) };
+            foreach (var kvp in session.Viewers)
+            {
+                var viewer = kvp.Value;
+                if (viewer.Socket.State == WebSocketState.Open)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await viewer.SendLock.WaitAsync(viewer.Cts.Token);
+                            try
+                            {
+                                if (viewer.Socket.State == WebSocketState.Open)
+                                {
+                                    await viewer.Socket.SendAsync(new ArraySegment<byte>(statusPacket), WebSocketMessageType.Binary, true, viewer.Cts.Token);
+                                }
+                            }
+                            finally
+                            {
+                                viewer.SendLock.Release();
+                            }
+                        }
+                        catch { }
+                    });
+                }
+            }
+        }
+    }
+
     public static void RegisterHost(string deviceId, WebSocket ws)
     {
         var session = _sessions.GetOrAdd(deviceId, _ => new DeviceStreamSession());
         session.HostSocket = ws;
+        session.LatestFrameJpeg = null; // Clear any old cached frame so a new session starts clean
+        BroadcastHostStatus(deviceId, true);
     }
 
     public static void UnregisterHost(string deviceId)
@@ -56,6 +92,8 @@ public static class StreamRelayHub
         if (_sessions.TryGetValue(deviceId, out var s))
         {
             s.HostSocket = null;
+            s.LatestFrameJpeg = null; // Wipe cached frame so viewers never see a frozen past frame
+            BroadcastHostStatus(deviceId, false);
         }
     }
 
@@ -87,7 +125,51 @@ public static class StreamRelayHub
                     }
                 }
             }
+
+            // If no active viewers remain, wipe cached frame to prevent stale image retention
+            if (s.Viewers.IsEmpty)
+            {
+                s.LatestFrameJpeg = null;
+            }
         }
+    }
+
+    public static void ClearSession(string deviceId)
+    {
+        if (_sessions.TryRemove(deviceId, out var s))
+        {
+            s.LatestFrameJpeg = null;
+            try { s.HostSocket?.Abort(); } catch { }
+            s.HostSocket = null;
+            foreach (var kvp in s.Viewers)
+            {
+                if (s.Viewers.TryRemove(kvp.Key, out var ctx))
+                {
+                    ctx.CancelAndDispose();
+                }
+            }
+        }
+    }
+
+    public static void ResetAll()
+    {
+        foreach (var kvp in _sessions)
+        {
+            try
+            {
+                var s = kvp.Value;
+                s.LatestFrameJpeg = null;
+                try { s.HostSocket?.Abort(); } catch { }
+                s.HostSocket = null;
+                foreach (var vKvp in s.Viewers)
+                {
+                    try { vKvp.Value.CancelAndDispose(); } catch { }
+                }
+                s.Viewers.Clear();
+            }
+            catch { }
+        }
+        _sessions.Clear();
     }
 
     public static bool IsHostConnected(string deviceId)
@@ -196,9 +278,26 @@ public static class StreamRelayHub
 
         var ct = viewerCtx.Cts.Token;
 
-        // 1. Instantly send cached latest frame so viewer never sees a blank screen
+        // 1. Immediately inform the viewer whether the remote host is currently streaming
+        bool hostOnline = IsHostConnected(deviceId);
+        byte[] statusPacket = new byte[] { 0x26, (byte)(hostOnline ? 1 : 0) };
+        await viewerCtx.SendLock.WaitAsync(ct);
+        try
+        {
+            if (viewerWs.State == WebSocketState.Open)
+            {
+                await viewerWs.SendAsync(new ArraySegment<byte>(statusPacket), WebSocketMessageType.Binary, true, ct);
+            }
+        }
+        catch { }
+        finally
+        {
+            viewerCtx.SendLock.Release();
+        }
+
+        // 2. Instantly send cached latest frame if host is online so viewer never sees a blank screen
         byte[]? cached = session.LatestFrameJpeg;
-        if (cached != null && cached.Length > 0 && viewerWs.State == WebSocketState.Open)
+        if (hostOnline && cached != null && cached.Length > 0 && viewerWs.State == WebSocketState.Open)
         {
             await viewerCtx.SendLock.WaitAsync(ct);
             try

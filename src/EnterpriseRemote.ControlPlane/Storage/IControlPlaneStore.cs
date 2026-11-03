@@ -14,6 +14,7 @@ public interface IControlPlaneStore
     void SaveDevice(EnrolledDevice device);
     EnrolledDevice? GetDevice(string deviceId);
     EnrolledDevice? GetDeviceByPermanentToken(string permToken);
+    EnrolledDevice? GetDeviceByHostname(string hostname);
     IReadOnlyList<EnrolledDevice> GetDevicesForOrg(string orgId, IEnumerable<string>? groupFilter = null);
     
     void SaveInvitation(EnrollmentInvitation invitation);
@@ -107,6 +108,7 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
                     if (data?.Devices != null)
                     {
                         foreach (var d in data.Devices) _devices[d.DeviceId] = d;
+                        DeduplicateDevicesLocked();
                     }
                     if (data?.Invitations != null)
                     {
@@ -121,6 +123,27 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
         }
 
         TryImportLocalDeviceIdentity();
+    }
+
+    private void DeduplicateDevicesLocked()
+    {
+        var groups = _devices.Values
+            .Where(d => !string.IsNullOrWhiteSpace(d.Hostname))
+            .GroupBy(d => d.Hostname.Trim().ToLowerInvariant())
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        foreach (var group in groups)
+        {
+            var canonical = group.OrderByDescending(d => d.LastHeartbeatUtc).ThenByDescending(d => d.EnrolledAtUtc).First();
+            foreach (var dupe in group)
+            {
+                if (dupe.DeviceId != canonical.DeviceId)
+                {
+                    _devices.TryRemove(dupe.DeviceId, out _);
+                }
+            }
+        }
     }
 
     private void TryImportLocalDeviceIdentity()
@@ -150,11 +173,22 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
 
                         if (!string.IsNullOrEmpty(deviceId))
                         {
+                            string hostname = root.TryGetProperty("Hostname", out var hProp) ? (hProp.GetString() ?? Environment.MachineName) : Environment.MachineName;
+                            string pubKey = root.TryGetProperty("PublicKeyPem", out var pkProp) ? (pkProp.GetString() ?? "") : "";
+
+                            var existingByHost = GetDeviceByHostname(hostname);
+                            if (existingByHost != null)
+                            {
+                                existingByHost.PublicKeyPem = pubKey;
+                                if (!string.IsNullOrEmpty(permToken)) existingByHost.PermanentAccessToken = permToken;
+                                existingByHost.Status = DeviceStatus.Online;
+                                existingByHost.LastHeartbeatUtc = DateTime.UtcNow;
+                                SaveToDisk();
+                                break;
+                            }
+
                             if (!_devices.ContainsKey(deviceId))
                             {
-                                string hostname = root.TryGetProperty("Hostname", out var hProp) ? (hProp.GetString() ?? Environment.MachineName) : Environment.MachineName;
-                                string pubKey = root.TryGetProperty("PublicKeyPem", out var pkProp) ? (pkProp.GetString() ?? "") : "";
-
                                 var device = new EnrolledDevice
                                 {
                                     DeviceId = deviceId,
@@ -232,6 +266,13 @@ public sealed class MemoryControlPlaneStore : IControlPlaneStore
         return _devices.Values.FirstOrDefault(d =>
             !string.IsNullOrWhiteSpace(d.PermanentAccessToken) &&
             string.Equals(d.PermanentAccessToken.Trim(), permToken.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    public EnrolledDevice? GetDeviceByHostname(string hostname)
+    {
+        if (string.IsNullOrWhiteSpace(hostname)) return null;
+        return _devices.Values.FirstOrDefault(d =>
+            string.Equals(d.Hostname.Trim(), hostname.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     public IReadOnlyList<EnrolledDevice> GetDevicesForOrg(string orgId, IEnumerable<string>? groupFilter = null)

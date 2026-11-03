@@ -14,6 +14,7 @@ export const InputEventType = {
     SwitchDesktop: 0x21,
     DesktopListUpdate: 0x22,
     CursorUpdate: 0x25,
+    HostStatus: 0x26,
     StreamConfig: 0x35,
     LatencyPing: 0x40,
     LatencyPong: 0x41
@@ -249,4 +250,15 @@ export function tryDeserializeDesktopList(dataView) {
     } catch {
         return null;
     }
+}
+
+/**
+ * Deserializes 0x26 HostStatus packet: 2 bytes
+ * [0]: 0x26
+ * [1]: Status (1 = Online/Streaming, 0 = Offline/Disconnected)
+ */
+export function tryDeserializeHostStatus(dataView) {
+    if (dataView.byteLength < 2) return null;
+    if (dataView.getUint8(0) !== InputEventType.HostStatus) return null;
+    return dataView.getUint8(1) === 1;
 }

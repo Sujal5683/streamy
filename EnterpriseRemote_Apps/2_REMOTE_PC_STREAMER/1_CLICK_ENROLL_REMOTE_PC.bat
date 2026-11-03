@@ -4,7 +4,7 @@ title Enterprise Remote Access — 1-Click Enrollment Wizard
 net session >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     if "%~1"=="" (
-        powershell -Command "Start-Process cmd -ArgumentList '/c "%~f0" --elevated' -Verb runAs" 2>nul
+        powershell -Command "Start-Process cmd -ArgumentList '/k \"\"%~f0\"\" --elevated' -Verb runAs" 2>nul
         if %ERRORLEVEL% equ 0 exit /b 0
     )
 )
@@ -23,8 +23,7 @@ echo.
 echo   BEFORE YOU CONTINUE — ensure the following:
 echo     1. The Main PC is running START_MAIN_PC.vbs (or .bat)
 echo     2. Both PCs are on the same Wi-Fi, LAN, or using Cloudflare Tunnel/Tailscale
-echo     3. You have generated an Invitation Code or 4-Digit PIN from the Main PC
-echo        (Click "Connect Other PC (Enroll Host)" in the Controller UI)
+echo     3. You have the Main PC Gateway URL or IP
 echo.
 echo  ================================================================
 echo.
@@ -50,8 +49,12 @@ set INVITATION_CODE=%INVITATION_CODE:"=%
 set INVITATION_CODE=%INVITATION_CODE: =%
 
 echo.
+echo  [*] Releasing any previous streamer locks & closing old instances...
+taskkill /F /IM EnterpriseRemote.Host.UserAgent.exe >nul 2>&1
+taskkill /F /IM EnterpriseRemote.Host.Service.exe >nul 2>&1
+
 echo  [*] Enrolling this device with %SERVER_URL%...
-echo      Please wait — this may take a few seconds.
+echo      Please wait — verifying cryptographic identity...
 echo.
 
 cd /d "%~dp0Bin"
@@ -124,5 +127,6 @@ echo   Return to your Main PC Controller and click "Connect".
 echo.
 echo   Look for the green shield icon in the taskbar notification tray (^).
 echo.
-timeout /T 4 >nul
+echo  This window will automatically close in 5 seconds...
+ping 127.0.0.1 -n 6 >nul
 exit /b 0

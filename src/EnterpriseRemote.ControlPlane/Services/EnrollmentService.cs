@@ -95,27 +95,30 @@ public sealed class EnrollmentService
             ? upperCode
             : $"INV-{upperCode}";
 
+        string cleanHost = string.IsNullOrWhiteSpace(hostname) ? "RemotePC" : hostname.Trim();
+        var existingHostDev = _store.GetDeviceByHostname(cleanHost);
+
         // Universal Master Key or Passkey Support (e.g. PERM-MASTER-..., custom passkey configured in UI)
         if (MasterKeysService.IsValidMasterKey(trimmedCode) ||
             MasterKeysService.IsValidMasterKey(upperCode) ||
             trimmedCode.StartsWith("PERM-", StringComparison.OrdinalIgnoreCase))
         {
-            string devId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
-            var enrolledDev = new EnrolledDevice
+            string devId = existingHostDev?.DeviceId ?? $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+            var enrolledDev = existingHostDev ?? new EnrolledDevice
             {
                 DeviceId = devId,
                 OrgId = "ORG-ENTERPRISE",
                 GroupId = "GRP-CORP-DESKTOPS",
-                Hostname = string.IsNullOrWhiteSpace(hostname) ? "RemotePC" : hostname,
-                OsVersion = string.IsNullOrWhiteSpace(osVersion) ? "Windows" : osVersion,
-                MacAddress = macAddress ?? "",
-                PublicKeyPem = publicKeyPem,
-                EnrolledAtUtc = DateTime.UtcNow,
-                LastHeartbeatUtc = DateTime.UtcNow,
-                Status = DeviceStatus.Online,
-                PermanentAccessToken = trimmedCode,
-                ShortPin = null
+                Hostname = cleanHost,
+                EnrolledAtUtc = DateTime.UtcNow
             };
+            enrolledDev.Hostname = cleanHost;
+            enrolledDev.OsVersion = string.IsNullOrWhiteSpace(osVersion) ? (enrolledDev.OsVersion ?? "Windows") : osVersion;
+            enrolledDev.MacAddress = macAddress ?? enrolledDev.MacAddress ?? "";
+            enrolledDev.PublicKeyPem = publicKeyPem;
+            enrolledDev.LastHeartbeatUtc = DateTime.UtcNow;
+            enrolledDev.Status = DeviceStatus.Online;
+            enrolledDev.PermanentAccessToken = trimmedCode;
             _store.SaveDevice(enrolledDev);
             return new EnrollmentRedemptionResult(true, devId, trimmedCode, null);
         }
@@ -123,22 +126,23 @@ public sealed class EnrollmentService
         // Universal PIN "1234" Instant Attended Pairing Support
         if (trimmedCode == "1234" || trimmedCode.Equals("0000", StringComparison.OrdinalIgnoreCase))
         {
-            string devId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
-            var enrolledDev = new EnrolledDevice
+            string devId = existingHostDev?.DeviceId ?? $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+            var enrolledDev = existingHostDev ?? new EnrolledDevice
             {
                 DeviceId = devId,
                 OrgId = "ORG-ENTERPRISE",
                 GroupId = "GRP-CORP-DESKTOPS",
-                Hostname = string.IsNullOrWhiteSpace(hostname) ? "RemotePC" : hostname,
-                OsVersion = string.IsNullOrWhiteSpace(osVersion) ? "Windows" : osVersion,
-                MacAddress = macAddress ?? "",
-                PublicKeyPem = publicKeyPem,
-                EnrolledAtUtc = DateTime.UtcNow,
-                LastHeartbeatUtc = DateTime.UtcNow,
-                Status = DeviceStatus.Online,
-                PermanentAccessToken = "1234",
-                ShortPin = "1234"
+                Hostname = cleanHost,
+                EnrolledAtUtc = DateTime.UtcNow
             };
+            enrolledDev.Hostname = cleanHost;
+            enrolledDev.OsVersion = string.IsNullOrWhiteSpace(osVersion) ? (enrolledDev.OsVersion ?? "Windows") : osVersion;
+            enrolledDev.MacAddress = macAddress ?? enrolledDev.MacAddress ?? "";
+            enrolledDev.PublicKeyPem = publicKeyPem;
+            enrolledDev.LastHeartbeatUtc = DateTime.UtcNow;
+            enrolledDev.Status = DeviceStatus.Online;
+            enrolledDev.PermanentAccessToken = "1234";
+            enrolledDev.ShortPin = "1234";
             _store.SaveDevice(enrolledDev);
             return new EnrollmentRedemptionResult(true, devId, "1234", null);
         }
@@ -216,8 +220,8 @@ public sealed class EnrollmentService
         // Use the invitation's canonical TokenHash for TryRedeemInvitation
         string tokenHash = invitation.TokenHash;
 
-        // 4. Generate Unique Device ID & Cryptographic Registration with Permanent Access Token
-        string deviceId = $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+        // 4. Generate or Reuse Device ID & Cryptographic Registration with Permanent Access Token
+        string deviceId = existingHostDev?.DeviceId ?? $"DEV-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
 
         // When redeemed by ShortPin the permanent token IS the ShortPin (easy to type for attended sessions)
         string permToken = redeemedByShortPin
@@ -230,21 +234,22 @@ public sealed class EnrollmentService
             return new EnrollmentRedemptionResult(false, null, null, "Concurrent redemption conflict. Try again.");
         }
 
-        var device = new EnrolledDevice
+        var device = existingHostDev ?? new EnrolledDevice
         {
             DeviceId = deviceId,
             OrgId = invitation.OrgId,
             GroupId = invitation.GroupId,
-            Hostname = hostname,
-            OsVersion = osVersion,
-            MacAddress = macAddress,
-            PublicKeyPem = publicKeyPem,
-            EnrolledAtUtc = DateTime.UtcNow,
-            LastHeartbeatUtc = DateTime.UtcNow,
-            Status = DeviceStatus.Online,
-            PermanentAccessToken = permToken,
-            ShortPin = invitation.ShortPin
+            Hostname = cleanHost,
+            EnrolledAtUtc = DateTime.UtcNow
         };
+        device.Hostname = cleanHost;
+        device.OsVersion = string.IsNullOrWhiteSpace(osVersion) ? (device.OsVersion ?? "Windows") : osVersion;
+        device.MacAddress = macAddress ?? device.MacAddress ?? "";
+        device.PublicKeyPem = publicKeyPem;
+        device.LastHeartbeatUtc = DateTime.UtcNow;
+        device.Status = DeviceStatus.Online;
+        device.PermanentAccessToken = permToken;
+        device.ShortPin = invitation.ShortPin;
 
         _store.SaveDevice(device);
 

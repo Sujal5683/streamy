@@ -9,7 +9,10 @@ import { InputHandler } from './input.js';
 
 class WebControllerApp {
     constructor() {
-        this.serverUrl = localStorage.getItem('ER_GATEWAY_URL') || window.location.origin;
+        const origin = window.location.origin;
+        const isHttpOrigin = origin && (origin.startsWith('http://') || origin.startsWith('https://')) && !origin.startsWith('http://127.0.0.1:0');
+        // Always prioritize active served origin over stale saved localStorage tunnel
+        this.serverUrl = isHttpOrigin ? origin : (localStorage.getItem('ER_GATEWAY_URL') || 'http://127.0.0.1:5293');
         if (!this.serverUrl || this.serverUrl === 'null' || this.serverUrl.startsWith('file:')) {
             this.serverUrl = 'http://127.0.0.1:5293';
         }
@@ -18,12 +21,14 @@ class WebControllerApp {
         this.devices = [];
         this.selectedDevice = null;
         this.activeSession = null;
+        this.autoReconnectAttempts = 0;
         this.permanentTokens = this.loadPermanentTokens();
 
         // Stream and Input Engines
         this.canvas = document.getElementById('viewportCanvas');
         this.streamClient = new RemoteStreamClient(this.canvas, {
             onStatusChange: (status, message) => this.onStreamStatusChange(status, message),
+            onHostStatus: (isLive) => this.onHostStatus(isLive),
             onTelemetry: (telemetry) => this.onTelemetryUpdate(telemetry),
             onCursorChange: (cursor) => this.onCursorChange(cursor),
             onDesktopList: (list) => this.onDesktopListUpdate(list),
@@ -76,6 +81,8 @@ class WebControllerApp {
             btnHeaderKeypair: document.getElementById('btn-header-keypair'),
             btnHeaderAudit: document.getElementById('btn-header-audit'),
             btnHeaderPolicy: document.getElementById('btn-header-policy'),
+            btnHeaderResetServices: document.getElementById('btn-header-reset-services'),
+            btnHeaderTerminateAll: document.getElementById('btn-header-terminate-all'),
 
             // Custom Cyber Selects
             btnTriggerUser: document.getElementById('btn-trigger-user'),
@@ -238,6 +245,8 @@ class WebControllerApp {
             diagRtt: document.getElementById('diag-rtt'),
             diagFrames: document.getElementById('diag-frames'),
             diagBytes: document.getElementById('diag-bytes'),
+            btnDiagResetRelay: document.getElementById('btn-diag-reset-relay'),
+            btnDiagTerminateAll: document.getElementById('btn-diag-terminate-all'),
 
             // Collapsible Left Sidebar Elements
             btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
@@ -1395,6 +1404,63 @@ class WebControllerApp {
             }
         });
 
+        // Process & Service Lifecycle Handlers
+        const handleResetServices = async () => {
+            try {
+                this.showToast('Flushing streaming relay buffers & re-syncing...', 'info');
+                await this.apiFetch('/api/v1/system/reset-relay', { method: 'POST' }).catch(() => {});
+                this.stopSession();
+                await this.refreshDeviceList();
+                this.showToast('Streaming relay and device inventory refreshed cleanly.', 'success');
+            } catch (err) {
+                this.showToast(`Reset completed with warning: ${err.message}`, 'warn');
+            }
+        };
+
+        const handleTerminateAll = async () => {
+            if (!confirm('🛑 TERMINATE ALL BACKGROUND SERVICES?\n\nThis will completely terminate:\n • EnterpriseRemote.Controller (Operator GUI)\n • EnterpriseRemote.ControlPlane (Background Server)\n • Any active cloudflared / tailscale tunnels\n\nAll background processes will be killed immediately. Proceed?')) {
+                return;
+            }
+
+            this.showToast('Terminating all background services & shutting down...', 'warning');
+
+            // 1. Notify native Windows Controller Shell via WebView2 message
+            if (window.chrome && window.chrome.webview) {
+                try {
+                    window.chrome.webview.postMessage({ type: 'shutdown-all' });
+                } catch { }
+            }
+
+            // 2. Call backend shutdown API
+            try {
+                await fetch(`${this.serverUrl}/api/v1/system/shutdown`, { method: 'POST' });
+            } catch { }
+
+            // 3. Render clean termination splash
+            setTimeout(() => {
+                document.body.innerHTML = `
+                    <div style="background:#07090e; color:#00e5ff; font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; user-select:none; text-align:center; padding:20px;">
+                        <div style="font-size:42px; margin-bottom:16px;">🛑</div>
+                        <h1 style="font-size:20px; font-weight:700; color:#f8fafc; margin-bottom:8px; letter-spacing:1px;">ENTERPRISE REMOTE TERMINATED</h1>
+                        <p style="font-size:13px; color:#94a3b8; max-width:480px; line-height:1.6; margin-bottom:24px;">All background services, streaming relays, and network tunnels have stopped cleanly. Port 5293 has been released.</p>
+                        <div style="font-size:11px; color:#64748b; font-family:Consolas,monospace;">You may now safely close this window or browser tab.</div>
+                    </div>
+                `;
+            }, 300);
+        };
+
+        if (this.dom.btnHeaderResetServices) this.dom.btnHeaderResetServices.addEventListener('click', handleResetServices);
+        if (this.dom.btnDiagResetRelay) this.dom.btnDiagResetRelay.addEventListener('click', handleResetServices);
+        if (this.dom.btnHeaderTerminateAll) this.dom.btnHeaderTerminateAll.addEventListener('click', handleTerminateAll);
+        if (this.dom.btnDiagTerminateAll) this.dom.btnDiagTerminateAll.addEventListener('click', handleTerminateAll);
+
+        // Clean WebSocket teardown on tab or window close/reload
+        window.addEventListener('beforeunload', () => {
+            if (this.activeSession) {
+                this.stopSession();
+            }
+        });
+
         // Populate Operator Accounts in Settings
         this.renderAccountsDirectory();
     }
@@ -1678,10 +1744,20 @@ class WebControllerApp {
         if (!newUrl) return;
         const cleaned = newUrl.replace(/\/$/, '');
         if (cleaned === this.serverUrl) return; // already on this gateway — no-op
+
+        // Cleanly disconnect active stream session if currently connected to prevent stale socket/frame locks
+        if (this.activeSession || this.streamClient?.isConnected) {
+            this.stopSession();
+        }
+
         this.serverUrl = cleaned;
         localStorage.setItem('ER_GATEWAY_URL', this.serverUrl);
         // Mark that this URL was explicitly chosen so auto-fallback never overrides it
         this._explicitGateway = true;
+
+        if (this.dom.sidebarTxtServer) this.dom.sidebarTxtServer.value = this.serverUrl;
+        if (this.dom.inputCustomGateway) this.dom.inputCustomGateway.value = this.serverUrl;
+
         this.updateGatewayChip();
         this.showToast(`Gateway set to ${this.serverUrl}. Reconnecting...`, 'info');
         this.authenticateUser(this.dom.userSelect.value);
@@ -2798,11 +2874,20 @@ class WebControllerApp {
                 ? window.location.origin
                 : this.serverUrl;
             this.streamClient.connect(relayHost, this.selectedDevice.deviceId, this.activeSession.sessionId);
+            this.autoReconnectAttempts = 0;
             this.setBadge('connected', 'Live Stream Reconnected');
             this.showToast(`Reconnected to ${this.selectedDevice.hostname}!`, 'success');
         } catch (err) {
             console.warn('[Auto-Reconnect] Session refresh failed:', err);
-            this.setBadge('reconnecting', 'Auto-reconnect failed. Retrying in 2s...');
+            this.autoReconnectAttempts = (this.autoReconnectAttempts || 0) + 1;
+            if (this.autoReconnectAttempts > 5) {
+                this.autoReconnectAttempts = 0;
+                this.stopSession();
+                this.setBadge('idle', 'Remote Host Offline');
+                this.showToast(`Remote PC "${this.selectedDevice?.hostname || 'Host'}" is offline or unreachable. Please start streaming on the remote machine.`, 'error');
+                return;
+            }
+            this.setBadge('reconnecting', `Auto-reconnecting (attempt ${this.autoReconnectAttempts}/5)...`);
             setTimeout(() => {
                 if (!this.streamClient.userDisconnected) {
                     this.autoReconnectSession();
@@ -2826,6 +2911,7 @@ class WebControllerApp {
     }
 
     stopSession() {
+        this.autoReconnectAttempts = 0;
         this.streamClient.disconnect();
         this.activeSession = null;
         this.dom.btnConnect.disabled = false;
@@ -2856,6 +2942,22 @@ class WebControllerApp {
         }
 
         this.showToast('Remote session terminated.', 'info');
+    }
+
+    onHostStatus(isLive) {
+        if (!isLive) {
+            this.setBadge('reconnecting', 'Waiting for Remote PC (Host Offline)...');
+            if (this.dom.sidebarHudStatus) {
+                this.dom.sidebarHudStatus.textContent = 'Host Offline (Waiting...)';
+                this.dom.sidebarHudStatus.className = 'hud-warn';
+            }
+        } else {
+            this.setBadge('connected', `Streaming: ${this.selectedDevice ? this.selectedDevice.hostname : 'Host'}`);
+            if (this.dom.sidebarHudStatus) {
+                this.dom.sidebarHudStatus.textContent = 'Streaming Live';
+                this.dom.sidebarHudStatus.className = 'hud-good';
+            }
+        }
     }
 
     onStreamStatusChange(status, message) {
