@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.10</Version>
+    <AssemblyVersion>1.0.10.0</AssemblyVersion>
+    <FileVersion>1.0.10.0</FileVersion>
+    <InformationalVersion>Streamy V1.0.10</InformationalVersion>
+    <Authors>Sujal Kumar</Authors>
+    <Company>Streamy</Company>
+    <Product>Streamy Enterprise Remote Desktop</Product>
+  </PropertyGroup>
+</Project>
