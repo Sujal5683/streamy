@@ -20,9 +20,12 @@ public sealed class GdiDesktopCapturer : IScreenCapturer
     private IntPtr _hOldBitmap = IntPtr.Zero;
     private IntPtr _pBits = IntPtr.Zero;
     private byte[]? _buffer;
+    private int _left;
+    private int _top;
     private int _width;
     private int _height;
 
+    public byte TargetDisplayIndex { get; set; } = 0;
     public DisplayInfo Display { get; private set; } = new();
     public bool IsInitialized { get; private set; }
 
@@ -34,25 +37,50 @@ public sealed class GdiDesktopCapturer : IScreenCapturer
 
             try
             {
-                _width = GetSystemMetrics(SM_CXSCREEN);
-                _height = GetSystemMetrics(SM_CYSCREEN);
-
-                if (_width <= 0 || _height <= 0)
+                var screens = System.Windows.Forms.Screen.AllScreens;
+                if (TargetDisplayIndex >= 0 && TargetDisplayIndex < screens.Length)
                 {
-                    _width = 1920;
-                    _height = 1080;
+                    var s = screens[TargetDisplayIndex];
+                    _left = s.Bounds.X;
+                    _top = s.Bounds.Y;
+                    _width = s.Bounds.Width;
+                    _height = s.Bounds.Height;
+
+                    Display = new DisplayInfo
+                    {
+                        Index = TargetDisplayIndex,
+                        DeviceName = s.DeviceName ?? $@"\\.\DISPLAY{TargetDisplayIndex + 1} (GDI)",
+                        Left = _left,
+                        Top = _top,
+                        Width = _width,
+                        Height = _height,
+                        IsPrimary = s.Primary
+                    };
                 }
-
-                Display = new DisplayInfo
+                else
                 {
-                    Index = 0,
-                    DeviceName = @"\\.\DISPLAY1 (GDI Primary)",
-                    Left = 0,
-                    Top = 0,
-                    Width = _width,
-                    Height = _height,
-                    IsPrimary = true
-                };
+                    _left = 0;
+                    _top = 0;
+                    _width = GetSystemMetrics(SM_CXSCREEN);
+                    _height = GetSystemMetrics(SM_CYSCREEN);
+
+                    if (_width <= 0 || _height <= 0)
+                    {
+                        _width = 1920;
+                        _height = 1080;
+                    }
+
+                    Display = new DisplayInfo
+                    {
+                        Index = 0,
+                        DeviceName = @"\\.\DISPLAY1 (GDI Primary)",
+                        Left = 0,
+                        Top = 0,
+                        Width = _width,
+                        Height = _height,
+                        IsPrimary = true
+                    };
+                }
 
                 _hDesktopDc = GetDC(IntPtr.Zero);
                 if (_hDesktopDc == IntPtr.Zero) return false;
@@ -110,13 +138,13 @@ public sealed class GdiDesktopCapturer : IScreenCapturer
             var sw = Stopwatch.StartNew();
 
             // Perform GDI BitBlt
-            bool success = BitBlt(_hMemoryDc, 0, 0, _width, _height, _hDesktopDc, 0, 0, SRCCOPY | CAPTUREBLT);
+            bool success = BitBlt(_hMemoryDc, 0, 0, _width, _height, _hDesktopDc, _left, _top, SRCCOPY | CAPTUREBLT);
             if (!success)
             {
                 // If desktop transitioned, attempt to rebind to current active desktop context once
                 if (RebindToActiveDesktop())
                 {
-                    success = BitBlt(_hMemoryDc, 0, 0, _width, _height, _hDesktopDc, 0, 0, SRCCOPY | CAPTUREBLT);
+                    success = BitBlt(_hMemoryDc, 0, 0, _width, _height, _hDesktopDc, _left, _top, SRCCOPY | CAPTUREBLT);
                 }
 
                 if (!success)

@@ -192,6 +192,41 @@ public sealed class DesktopSwitchManager : IDisposable
         return result;
     }
 
+    public static bool SwitchToDesktopByName(string desktopName)
+    {
+        if (string.IsNullOrWhiteSpace(desktopName) || desktopName.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        try
+        {
+            uint desired = DESKTOP_ALL_ACCESS | DESKTOP_SWITCHDESKTOP;
+            IntPtr hDesk = OpenDesktop(desktopName, 0, false, desired);
+            if (hDesk == IntPtr.Zero)
+            {
+                hDesk = OpenDesktop(desktopName, 0, false, DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP);
+            }
+
+            if (hDesk != IntPtr.Zero)
+            {
+                try
+                {
+                    bool switched = SwitchDesktop(hDesk);
+                    AttachThreadToDesktop(hDesk);
+                    return switched;
+                }
+                finally
+                {
+                    CloseDesktop(hDesk);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"SwitchToDesktopByName exception: {ex.Message}");
+        }
+        return false;
+    }
+
     public static IntPtr OpenActiveInputDesktop()
     {
         try
@@ -343,6 +378,12 @@ public sealed class DesktopSwitchManager : IDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SwitchDesktop(IntPtr hDesktop);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetThreadDesktop(IntPtr hDesktop);

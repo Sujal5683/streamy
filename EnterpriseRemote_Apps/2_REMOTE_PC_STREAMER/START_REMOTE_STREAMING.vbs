@@ -36,12 +36,21 @@ If Not IsAdmin() And WScript.Arguments.Count = 0 Then
     End If
     Err.Clear
 End If
+
 Set WshShell = CreateObject("WScript.Shell")
 Set fso      = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 binDir    = scriptDir & "\Bin"
 appData   = WshShell.ExpandEnvironmentStrings("%ProgramData%") & "\EnterpriseRemote"
+
+' ── Clear any active Kill Switch flag ─────────────────────────────────────────
+On Error Resume Next
+If fso.FileExists(appData   & "\kill_switch.flag") Then fso.DeleteFile appData   & "\kill_switch.flag", True
+If fso.FileExists(scriptDir & "\kill_switch.flag") Then fso.DeleteFile scriptDir & "\kill_switch.flag", True
+If fso.FileExists(binDir    & "\kill_switch.flag") Then fso.DeleteFile binDir    & "\kill_switch.flag", True
+WshShell.Run "sc.exe config EnterpriseRemoteHostSvc start= auto", 0, True
+On Error GoTo 0
 
 ' ── Check for enrollment identity in any of the known locations ─────────────
 hasIdentity = False
@@ -57,12 +66,12 @@ Else
     WshShell.CurrentDirectory = binDir
 
     On Error Resume Next
-    ' Start the background streaming service
-    WshShell.Run """" & binDir & "\EnterpriseRemote.Host.Service.exe"" --run", 0, False
+    ' Start the background streaming service with kill-switch clearance
+    WshShell.Run """" & binDir & "\EnterpriseRemote.Host.Service.exe"" --run --clear-kill-switch", 0, False
 
     ' Give the service ~600ms to bind before the tray agent connects
     WScript.Sleep 600
 
-    ' Start the system-tray notification & streaming agent
-    WshShell.Run """" & binDir & "\EnterpriseRemote.Host.UserAgent.exe""", 0, False
+    ' Start the system-tray notification & streaming agent with kill-switch clearance
+    WshShell.Run """" & binDir & "\EnterpriseRemote.Host.UserAgent.exe"" --clear-kill-switch", 0, False
 End If

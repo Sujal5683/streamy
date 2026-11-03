@@ -1,18 +1,21 @@
 @echo off
-title Enterprise Remote Access - Start Remote Streaming
+title Enterprise Remote Streamer
 cd /d "%~dp0"
 
-set HAS_IDENTITY=0
-if exist "device_identity.json" set HAS_IDENTITY=1
-if exist "%ProgramData%\EnterpriseRemote\device_identity.json" set HAS_IDENTITY=1
-
-if "%HAS_IDENTITY%"=="0" (
-    echo [!] This PC has not been enrolled yet.
-    echo [*] Running 1-Click Enrollment setup...
-    call 1-Click_Enroll_And_Start.bat
-    exit /b 0
+:: 1. Check for Administrator permissions to ensure UIPI bypass across elevated windows
+net session >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    if "%~1"=="" (
+        powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd -ArgumentList '/c `"%~f0`" --elevated' -Verb runAs" 2>nul
+        if %ERRORLEVEL% equ 0 exit /b 0
+    )
 )
 
-start "" EnterpriseRemote.Host.Service.exe --run
-start "" EnterpriseRemote.Host.UserAgent.exe
+:: 2. Clear Kill Switch flags so processes can launch and stream normally
+del /f /q "%ProgramData%\EnterpriseRemote\kill_switch.flag" >nul 2>&1
+del /f /q "%~dp0kill_switch.flag" >nul 2>&1
+del /f /q "%~dp0Bin\kill_switch.flag" >nul 2>&1
+
+:: 3. Launch the silent streamer
+wscript.exe "%~dp0START_REMOTE_STREAMING.vbs"
 exit /b 0

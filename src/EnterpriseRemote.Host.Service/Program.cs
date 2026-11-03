@@ -70,6 +70,11 @@ public static class Program
             }
         }
 
+        if (args.Any(a => a.Equals("--clear-kill-switch", StringComparison.OrdinalIgnoreCase)))
+        {
+            ClearKillSwitch();
+        }
+
         switch (command)
         {
             case "--install":
@@ -82,6 +87,7 @@ public static class Program
                 return uninstalled ? 0 : 1;
 
             case "--enroll":
+                ClearKillSwitch(); // Clean kill switch on fresh enrollment
                 if (args.Length < 2)
                 {
                     Console.WriteLine("[!] Usage: EnterpriseRemoteHostSvc.exe --enroll <INVITATION_CODE> [--server <URL>]");
@@ -92,6 +98,11 @@ public static class Program
 
             case "--run":
             default:
+                if (IsKillSwitchActive())
+                {
+                    Console.WriteLine("[!] Remote Streaming KILL SWITCH is active. Host.Service will not run.");
+                    return 0;
+                }
                 return await RunServiceHostAsync(serverUrl);
         }
     }
@@ -109,7 +120,7 @@ public static class Program
         string osVersion = Environment.OSVersion.ToString();
         string macAddress = "00:50:56:C0:00:08"; // Standard primary adapter MAC
 
-        using var http = CreateHttpClient(serverUrl, TimeSpan.FromSeconds(20));
+        using var http = CreateHttpClient(serverUrl, TimeSpan.FromSeconds(15));
         var payload = new
         {
             InvitationCode = invitationCode,
@@ -119,64 +130,89 @@ public static class Program
             PublicKeyPem = pubKey
         };
 
-        try
+        const int maxAttempts = 6;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            var response = await http.PostAsJsonAsync("/api/v1/enrollment/redeem", payload);
-            if (!response.IsSuccessStatusCode)
+            try
             {
+                var response = await http.PostAsJsonAsync("/api/v1/enrollment/redeem", payload);
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadFromJsonAsync<EnrollmentResponse>();
+                    if (result == null || string.IsNullOrEmpty(result.DeviceId))
+                    {
+                        Console.WriteLine("[!] Invalid response received from Control Plane.");
+                        return 1;
+                    }
+
+                    // Save enrolled device identity
+                    var identity = new StoredDeviceIdentity
+                    {
+                        DeviceId = result.DeviceId,
+                        Hostname = hostname,
+                        ControlPlaneUrl = serverUrl,
+                        PrivateKeyPem = privKey,
+                        PublicKeyPem = pubKey,
+                        PermanentAccessToken = result.PermanentAccessToken,
+                        EnrolledAtUtc = DateTime.UtcNow
+                    };
+
+                    SaveIdentity(identity);
+
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"[+] Enrollment Successful! Device ID: {result.DeviceId}");
+                    if (!string.IsNullOrEmpty(result.PermanentAccessToken))
+                    {
+                        Console.WriteLine($"[+] Permanent Unattended Access Key: {result.PermanentAccessToken}");
+                    }
+                    Console.WriteLine($"[+] Cryptographic identity generated and securely stored.");
+                    Console.ResetColor();
+                    return 0;
+                }
+
+                int statusCode = (int)response.StatusCode;
                 string err = await response.Content.ReadAsStringAsync();
+
+                // If Cloudflare edge warmup / proxy error (HTTP 530, 520-524, 502-504), wait and retry
+                if ((statusCode >= 500 && statusCode <= 599) && attempt < maxAttempts)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[*] Cloudflare tunnel edge is converging (HTTP {statusCode}). Retrying in 2s (attempt {attempt}/{maxAttempts})...");
+                    Console.ResetColor();
+                    await Task.Delay(2000);
+                    continue;
+                }
+
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine($"[!] Enrollment redemption failed: {response.StatusCode} - {err}");
                 Console.ResetColor();
                 return 1;
             }
-
-            var result = await response.Content.ReadFromJsonAsync<EnrollmentResponse>();
-            if (result == null || string.IsNullOrEmpty(result.DeviceId))
+            catch (Exception ex) when (attempt < maxAttempts && (ex is HttpRequestException || ex is TaskCanceledException))
             {
-                Console.WriteLine("[!] Invalid response received from Control Plane.");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"[*] Waiting for tunnel gateway to respond ({ex.Message}). Retrying in 2s (attempt {attempt}/{maxAttempts})...");
+                Console.ResetColor();
+                await Task.Delay(2000);
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[!] Connection error during enrollment: {ex.Message}");
+                if (ex is HttpRequestException || ex is TaskCanceledException)
+                {
+                    Console.WriteLine($"    Could not reach Control Plane at: {serverUrl}");
+                    Console.WriteLine("    Please check:");
+                    Console.WriteLine("    1. Is the Control Plane server running on the Main PC?");
+                    Console.WriteLine("    2. If on university/office Wi-Fi: AP Client Isolation may be blocking direct LAN connections.");
+                    Console.WriteLine("       -> Use a phone Mobile Hotspot for both PCs, or use Cloudflare Tunnel / Tailscale!");
+                }
+                Console.ResetColor();
                 return 1;
             }
-
-            // Save enrolled device identity
-            var identity = new StoredDeviceIdentity
-            {
-                DeviceId = result.DeviceId,
-                Hostname = hostname,
-                ControlPlaneUrl = serverUrl,
-                PrivateKeyPem = privKey,
-                PublicKeyPem = pubKey,
-                PermanentAccessToken = result.PermanentAccessToken,
-                EnrolledAtUtc = DateTime.UtcNow
-            };
-
-            SaveIdentity(identity);
-
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[+] Enrollment Successful! Device ID: {result.DeviceId}");
-            if (!string.IsNullOrEmpty(result.PermanentAccessToken))
-            {
-                Console.WriteLine($"[+] Permanent Unattended Access Key: {result.PermanentAccessToken}");
-            }
-            Console.WriteLine($"[+] Cryptographic identity generated and securely stored.");
-            Console.ResetColor();
-            return 0;
         }
-        catch (Exception ex)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[!] Connection error during enrollment: {ex.Message}");
-            if (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                Console.WriteLine($"    Could not reach Control Plane at: {serverUrl}");
-                Console.WriteLine("    Please check:");
-                Console.WriteLine("    1. Is the Control Plane server running on the Main PC?");
-                Console.WriteLine("    2. If on university/office Wi-Fi: AP Client Isolation may be blocking direct LAN connections.");
-                Console.WriteLine("       -> Use a phone Mobile Hotspot for both PCs, or use Cloudflare Tunnel / Tailscale!");
-            }
-            Console.ResetColor();
-            return 1;
-        }
+
+        return 1;
     }
 
     private static async Task<int> RunServiceHostAsync(string serverUrl)

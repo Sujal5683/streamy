@@ -49,12 +49,15 @@ set INVITATION_CODE=%INVITATION_CODE:"=%
 set INVITATION_CODE=%INVITATION_CODE: =%
 
 echo.
-echo  [*] Releasing any previous streamer locks & closing old instances...
+echo  [*] Releasing any previous streamer locks and closing old instances...
+del /f /q "%ProgramData%\EnterpriseRemote\kill_switch.flag" >nul 2>&1
+del /f /q "%~dp0kill_switch.flag" >nul 2>&1
+del /f /q "%~dp0Bin\kill_switch.flag" >nul 2>&1
 taskkill /F /IM EnterpriseRemote.Host.UserAgent.exe >nul 2>&1
 taskkill /F /IM EnterpriseRemote.Host.Service.exe >nul 2>&1
 
 echo  [*] Enrolling this device with %SERVER_URL%...
-echo      Please wait — verifying cryptographic identity...
+echo      Please wait -- verifying cryptographic identity...
 echo.
 
 cd /d "%~dp0Bin"
@@ -62,44 +65,46 @@ EnterpriseRemote.Host.Service.exe --enroll "%INVITATION_CODE%" --server "%SERVER
 set ENROLL_RESULT=%ERRORLEVEL%
 cd /d "%~dp0"
 
-:: If enroll failed, check if device was already enrolled previously
-if %ENROLL_RESULT% neq 0 (
-    if exist "%~dp0Bin\device_identity.json" (
-        echo.
-        echo  [+] Existing pairing identity found (device_identity.json).
-        echo      Proceeding to launch streaming services with existing identity...
-        set ENROLL_RESULT=0
-    )
+:: Check enrollment outcome
+if %ENROLL_RESULT% equ 0 goto :ENROLL_SUCCESS
+
+:: If fresh enroll failed, check if device was already enrolled previously
+if exist "%~dp0Bin\device_identity.json" (
+    echo.
+    echo  [+] Existing pairing identity found: device_identity.json
+    echo      Proceeding to launch streaming services with existing identity...
+    goto :ENROLL_SUCCESS
 )
 
-if %ENROLL_RESULT% neq 0 (
-    echo.
-    echo  ================================================================
-    echo  [ERROR] Enrollment failed (exit code: %ENROLL_RESULT%).
-    echo  ================================================================
-    echo.
-    echo  Common causes and solutions:
-    echo.
-    echo  1. CAMPUS / PUBLIC WI-FI ISOLATION (Most common!):
-    echo     Many university/office Wi-Fi networks block direct device-to-device communication.
-    echo     -^> Solution A: Turn on your phone's Mobile Hotspot and connect BOTH PCs to it.
-    echo     -^> Solution B: On the Main PC, click "Launch Terminal Tunnel" (Cloudflare)
-    echo        and enter the https://...trycloudflare.com URL here!
-    echo     -^> Solution C: Use Tailscale (connect both PCs with 100.x.y.z IP).
-    echo.
-    echo  2. CONTROLLER NOT RUNNING:
-    echo     -^> Ensure START_MAIN_PC is running on your Main PC.
-    echo.
-    echo  3. WRONG IP OR CODE:
-    echo     -^> Double-check the Gateway URL shown in your Main PC's top bar.
-    echo     -^> Generate a fresh 4-digit PIN or invitation code in the Controller.
-    echo.
-    echo  4. WINDOWS FIREWALL:
-    echo     -^> Run ALLOW_FIREWALL_PORT_5293.bat on your Main PC as Administrator.
-    echo.
-    pause
-    exit /b %ENROLL_RESULT%
-)
+:ENROLL_FAILED
+echo.
+echo  ================================================================
+echo  [ERROR] Enrollment failed with exit code: %ENROLL_RESULT%
+echo  ================================================================
+echo.
+echo  Common causes and solutions:
+echo.
+echo  1. CLOUDFLARE EDGE WARMUP OR TUNNEL NOT RUNNING:
+echo     -^> Ensure START_PUBLIC_INTERNET_TUNNEL.bat is active on Main PC.
+echo     -^> If you just launched the tunnel, wait a few seconds and re-run this script.
+echo.
+echo  2. CAMPUS OR PUBLIC WI-FI ISOLATION:
+echo     Many university/office Wi-Fi networks block direct LAN connections.
+echo     -^> Solution A: Turn on your phone Mobile Hotspot and connect BOTH PCs to it.
+echo     -^> Solution B: Use the Cloudflare Tunnel URL from Main PC.
+echo     -^> Solution C: Use Tailscale (connect both PCs with 100.x.y.z IP).
+echo.
+echo  3. WRONG IP OR CODE:
+echo     -^> Double-check the Gateway URL shown in your Main PC top bar.
+echo     -^> Use the 4-digit PIN (1234) or generate a fresh code in the Controller.
+echo.
+echo  4. WINDOWS FIREWALL:
+echo     -^> Ensure port 5293 is allowed in Windows Firewall on Main PC.
+echo.
+pause
+exit /b %ENROLL_RESULT%
+
+:ENROLL_SUCCESS
 
 echo.
 echo  ================================================================
@@ -115,7 +120,7 @@ sc.exe start EnterpriseRemoteHostSvc >nul 2>&1
 start "" "%~dp0Bin\EnterpriseRemote.Host.Service.exe" --run
 
 echo  [*] Starting real-time Desktop Screen Streamer...
-start "" "%~dp0Bin\EnterpriseRemote.Host.UserAgent.exe" --server "%SERVER_URL%"
+start "" "%~dp0Bin\EnterpriseRemote.Host.UserAgent.exe" --server "%SERVER_URL%" --clear-kill-switch
 cd /d "%~dp0"
 
 echo.

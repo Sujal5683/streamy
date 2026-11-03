@@ -190,17 +190,62 @@ public sealed class DesktopStreamingService : IDisposable
         }
     }
 
+    private static string? TryGetLatestServerUrl()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string[] candidates = new[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "server_url.txt"),
+                Path.Combine(programData, "EnterpriseRemote", "server_url.txt"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "device_identity.json"),
+                Path.Combine(programData, "EnterpriseRemote", "device_identity.json"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "device_identity.json")
+            };
+
+            foreach (var path in candidates)
+            {
+                if (File.Exists(path))
+                {
+                    if (path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string txt = File.ReadAllText(path).Trim();
+                        if (txt.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                            txt.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return txt;
+                        }
+                    }
+                    else
+                    {
+                        string json = File.ReadAllText(path);
+                        using var doc = System.Text.Json.JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("ControlPlaneUrl", out var cpProp))
+                        {
+                            string? cpUrl = cpProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(cpUrl)) return cpUrl.Trim();
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
     private async Task ConnectionManagerLoopAsync(CancellationToken ct)
     {
-        string cleanServer = UrlUtils.NormalizeServerUrl(_serverUrl);
-        string wsBase = cleanServer.TrimEnd('/')
-            .Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase);
-
-        var wsUri = new Uri($"{wsBase}/api/v1/stream/host?deviceId={Uri.EscapeDataString(_deviceId)}");
-
         while (!ct.IsCancellationRequested)
         {
+            string activeServer = TryGetLatestServerUrl() ?? _serverUrl;
+            string cleanServer = UrlUtils.NormalizeServerUrl(activeServer);
+            string wsBase = cleanServer.TrimEnd('/')
+                .Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase)
+                .Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase);
+
+            var wsUri = new Uri($"{wsBase}/api/v1/stream/host?deviceId={Uri.EscapeDataString(_deviceId)}");
+
             try
             {
                 using var ws = new ClientWebSocket();
@@ -530,10 +575,20 @@ public sealed class DesktopStreamingService : IDisposable
                                 _targetDesktopMode = string.IsNullOrWhiteSpace(switchPacket.DesktopName) ? "Auto" : switchPacket.DesktopName;
                                 Console.WriteLine($"[+] Switch Desktop received: Target='{_targetDesktopMode}', Display={_targetDisplayIndex}, AutoFollow={_autoFollowActiveDesktop}");
 
+                                if (!_autoFollowActiveDesktop && !_targetDesktopMode.Equals("Auto", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    DesktopSwitchManager.SwitchToDesktopByName(_targetDesktopMode);
+                                }
+
                                 if (_capturer is DxgiDesktopDuplicator dxgi && dxgi.TargetDisplayIndex != _targetDisplayIndex)
                                 {
                                     dxgi.TargetDisplayIndex = _targetDisplayIndex;
                                     try { dxgi.Initialize(); } catch { }
+                                }
+                                if (_fallbackGdiCapturer.TargetDisplayIndex != _targetDisplayIndex)
+                                {
+                                    _fallbackGdiCapturer.TargetDisplayIndex = _targetDisplayIndex;
+                                    try { _fallbackGdiCapturer.Initialize(); } catch { }
                                 }
 
                                 _lastDesktopListBroadcast = DateTime.MinValue; // Trigger immediate list update

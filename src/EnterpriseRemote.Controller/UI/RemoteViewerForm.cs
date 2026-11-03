@@ -170,6 +170,24 @@ public sealed class RemoteViewerForm : Form
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    private const int GWL_STYLE = -16;
+    private const int WS_CAPTION = 0x00C00000;
+    private const int WS_THICKFRAME = 0x00040000;
+    private const int WS_MINIMIZEBOX = 0x00020000;
+    private const int WS_MAXIMIZEBOX = 0x00010000;
+    private const uint SWP_FRAMECHANGED = 0x0020;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_NOZORDER = 0x0004;
+
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19;
     private const int DWMWA_CAPTION_COLOR = 35;
@@ -214,19 +232,57 @@ public sealed class RemoteViewerForm : Form
             _prevBounds = Bounds;
 
             // Completely eliminate the OS title bar, minimize/maximize/close icons, and window borders
+            SuspendLayout();
             FormBorderStyle = FormBorderStyle.None;
             WindowState = FormWindowState.Normal;
-            Bounds = Screen.FromControl(this).Bounds;
+            var scr = Screen.FromControl(this);
+            Bounds = scr.Bounds;
             TopMost = true; // Ensure native window floats above Windows taskbar and system elements
             _isFullScreen = true;
+
+            // Force Win32 window style refresh so OS title bar and minimize/maximize/close buttons disappear immediately
+            try
+            {
+                int style = GetWindowLong(Handle, GWL_STYLE);
+                style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+                SetWindowLong(Handle, GWL_STYLE, style);
+                SetWindowPos(Handle, IntPtr.Zero, scr.Bounds.X, scr.Bounds.Y, scr.Bounds.Width, scr.Bounds.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            }
+            catch { }
+            ResumeLayout(true);
+
+            // Notify WebView2 so web layout instantly adapts
+            try
+            {
+                _webView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new CustomEvent('native-fullscreen', { detail: { fullscreen: true } }));");
+            }
+            catch { }
         }
         else
         {
+            SuspendLayout();
             TopMost = false;
             FormBorderStyle = _prevBorderStyle != FormBorderStyle.None ? _prevBorderStyle : FormBorderStyle.Sizable;
             WindowState = _prevWindowState;
             Bounds = _prevBounds.Width > 0 ? _prevBounds : new Rectangle(100, 100, 1440, 900);
             _isFullScreen = false;
+
+            try
+            {
+                int style = GetWindowLong(Handle, GWL_STYLE);
+                style |= (WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX);
+                SetWindowLong(Handle, GWL_STYLE, style);
+                SetWindowPos(Handle, IntPtr.Zero, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+            }
+            catch { }
+            ResumeLayout(true);
+
+            // Notify WebView2 so web layout restores topbar
+            try
+            {
+                _webView.CoreWebView2?.ExecuteScriptAsync("window.dispatchEvent(new CustomEvent('native-fullscreen', { detail: { fullscreen: false } }));");
+            }
+            catch { }
         }
     }
 

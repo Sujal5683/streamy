@@ -668,11 +668,11 @@ class WebControllerApp {
 
         // Universal PIN Copy Button
         if (this.dom.btnWizardCopyPin) {
-            this.dom.btnWizardCopyPin.addEventListener('click', () => {
+            this.dom.btnWizardCopyPin.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const pin = (this.dom.wizardPin?.textContent || '').trim();
                 if (pin) {
-                    navigator.clipboard.writeText(pin);
-                    this.showToast(`Copied Universal PIN (${pin}) to clipboard`, 'success');
+                    this.copyToClipboard(pin, `Copied Universal PIN (${pin}) to clipboard`);
                 }
             });
         }
@@ -1002,12 +1002,10 @@ class WebControllerApp {
             syncSliders(parseInt(this.dom.sliderFps.value, 10), parseInt(this.dom.sliderQuality.value, 10), parseInt(this.dom.selectHeight.value, 10));
         });
 
-        // Dropdown Toggles
+        // Dropdown Toggles (Header Bar)
         this.dom.screenSelectorBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.screenSelectorBtn, this.dom.screenSelectorMenu); });
         this.dom.quickActionsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.quickActionsBtn, this.dom.quickActionsMenu); });
         this.dom.configBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.configBtn, this.dom.configMenu); });
-        this.dom.btnFloatScreens.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.btnFloatScreens, this.dom.screenSelectorMenu); });
-        this.dom.btnFloatQuick.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.btnFloatQuick, this.dom.quickActionsMenu); });
 
         // Dropdown Protection: Clicks inside dropdown menus or triggers must never dismiss them
         document.querySelectorAll('.dropdown-menu').forEach(menu => {
@@ -1145,55 +1143,73 @@ class WebControllerApp {
             });
         });
 
-        // Fullscreen Toggle + Keyboard Lock API
+        // Fullscreen Toggle + Native Shell Sync + Keyboard Lock API
         const toggleFullscreen = async () => {
             const container = document.getElementById('app-container');
             const targetEl = document.documentElement;
+            const willBeFullscreen = !document.fullscreenElement && !container.classList.contains('is-fullscreen');
 
-            if (!document.fullscreenElement) {
+            container.classList.toggle('is-fullscreen', willBeFullscreen);
+            if (willBeFullscreen) {
+                this.dom.floatingIsland.classList.remove('collapsed');
+                this.isIslandCollapsed = false;
+                this.startIslandAutoHide();
+            } else {
+                this.stopIslandAutoHide();
+            }
+
+            // Always notify native Windows shell (RemoteViewerForm)
+            if (window.chrome?.webview?.postMessage) {
+                try {
+                    window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: willBeFullscreen });
+                } catch { }
+            }
+
+            if (willBeFullscreen) {
                 try {
                     if (targetEl.requestFullscreen) {
                         await targetEl.requestFullscreen();
                     } else if (container.requestFullscreen) {
                         await container.requestFullscreen();
                     }
-                    container.classList.add('is-fullscreen');
-                    this.dom.floatingIsland.classList.remove('collapsed');
-                    this.isIslandCollapsed = false;
-                    this.startIslandAutoHide();
-
-                    // Synchronize native Windows shell (RemoteViewerForm)
-                    if (window.chrome?.webview?.postMessage) {
-                        window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: true });
-                    }
-
-                    if ('keyboard' in navigator && typeof navigator.keyboard.lock === 'function') {
-                        try {
-                            await navigator.keyboard.lock(['Escape', 'AltLeft', 'AltRight', 'Tab', 'MetaLeft', 'MetaRight']);
-                        } catch { }
-                    }
                 } catch { }
+                if ('keyboard' in navigator && typeof navigator.keyboard.lock === 'function') {
+                    try {
+                        await navigator.keyboard.lock(['Escape', 'AltLeft', 'AltRight', 'Tab', 'MetaLeft', 'MetaRight']);
+                    } catch { }
+                }
             } else {
                 try {
-                    await document.exitFullscreen();
-                    container.classList.remove('is-fullscreen');
-                    this.stopIslandAutoHide();
-
-                    if (window.chrome?.webview?.postMessage) {
-                        window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: false });
-                    }
-
-                    if ('keyboard' in navigator && typeof navigator.keyboard.unlock === 'function') {
-                        navigator.keyboard.unlock();
+                    if (document.fullscreenElement) {
+                        await document.exitFullscreen();
                     }
                 } catch { }
+                if ('keyboard' in navigator && typeof navigator.keyboard.unlock === 'function') {
+                    try {
+                        navigator.keyboard.unlock();
+                    } catch { }
+                }
             }
         };
 
         this.dom.btnFullscreen.addEventListener('click', toggleFullscreen);
         this.dom.btnFloatExitFullscreen.addEventListener('click', toggleFullscreen);
 
-        // Track fullscreen change (e.g. user pressed Esc on browser)
+        // Listen for native fullscreen changes triggered by F11 or Esc in Windows Controller
+        window.addEventListener('native-fullscreen', (e) => {
+            const isFs = !!e.detail?.fullscreen;
+            const container = document.getElementById('app-container');
+            container.classList.toggle('is-fullscreen', isFs);
+            if (isFs) {
+                this.dom.floatingIsland.classList.remove('collapsed');
+                this.isIslandCollapsed = false;
+                this.startIslandAutoHide();
+            } else {
+                this.stopIslandAutoHide();
+            }
+        });
+
+        // Track browser fullscreen change
         document.addEventListener('fullscreenchange', () => {
             const container = document.getElementById('app-container');
             if (!document.fullscreenElement) {
@@ -1204,6 +1220,8 @@ class WebControllerApp {
                 }
             } else {
                 container.classList.add('is-fullscreen');
+                this.dom.floatingIsland.classList.remove('collapsed');
+                this.isIslandCollapsed = false;
                 this.startIslandAutoHide();
                 if (window.chrome?.webview?.postMessage) {
                     window.chrome.webview.postMessage({ type: 'toggle-fullscreen', fullscreen: true });
@@ -1259,11 +1277,13 @@ class WebControllerApp {
             this.switchModalTab(this.dom.modalConnections, 'tab-network-gateway');
         });
 
-        this.dom.btnOpenSettings.addEventListener('click', () => {
+        this.dom.btnOpenSettings.addEventListener('click', (e) => {
+            e.stopPropagation();
             openModal(this.dom.modalSettings);
             this.refreshDiagnosticsModal();
         });
-        this.dom.btnFloatSettings.addEventListener('click', () => {
+        this.dom.btnFloatSettings.addEventListener('click', (e) => {
+            e.stopPropagation();
             openModal(this.dom.modalSettings);
             this.refreshDiagnosticsModal();
         });
@@ -1291,13 +1311,13 @@ class WebControllerApp {
         // Connections Modal Buttons
         this.dom.btnRefreshDevicesModal.addEventListener('click', () => this.refreshConnectionsModal());
         this.dom.btnRefreshCode.addEventListener('click', () => this.generateEnrollmentCode());
-        this.dom.btnCopyCode.addEventListener('click', () => {
-            navigator.clipboard.writeText(this.dom.wizardCode.textContent.trim());
-            this.showToast('Copied invitation code to clipboard', 'success');
+        this.dom.btnCopyCode.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.copyToClipboard(this.dom.wizardCode.textContent.trim(), 'Copied invitation code to clipboard');
         });
-        this.dom.btnCopyCmd.addEventListener('click', () => {
-            navigator.clipboard.writeText(this.dom.wizardCmd.value.trim());
-            this.showToast('Copied PowerShell command to clipboard', 'success');
+        this.dom.btnCopyCmd.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.copyToClipboard(this.dom.wizardCmd.value.trim(), 'Copied PowerShell command to clipboard');
         });
 
         // Gateway Switcher Chips
@@ -1477,18 +1497,17 @@ class WebControllerApp {
 
         const onPointerDown = (e) => {
             if (e.button !== 0 && e.pointerType === 'mouse') return;
-            if (e.target.closest('button, input, select, .dropdown-menu, .cyber-select-menu')) return;
+            if (e.target.closest('button, input, select, .dropdown-menu, .cyber-select-menu, .island-dropdown-menu')) return;
 
             isDragging = true;
             this.stopIslandAutoHide();
             island.style.transition = 'none';
             island.classList.add('is-dragging');
 
-            const rect = island.getBoundingClientRect();
             startPointerX = e.clientX;
             startPointerY = e.clientY;
-            startLeft = rect.left;
-            startTop = rect.top;
+            startLeft = island.offsetLeft;
+            startTop = island.offsetTop;
 
             island.style.transform = 'none';
             island.style.left = `${startLeft}px`;
@@ -1506,13 +1525,13 @@ class WebControllerApp {
             let newLeft = startLeft + dx;
             let newTop = startTop + dy;
 
-            const w = island.offsetWidth;
-            const h = island.offsetHeight;
-            const maxLeft = window.innerWidth - w - 8;
-            const maxTop = window.innerHeight - h - 8;
+            const pW = island.offsetParent ? island.offsetParent.clientWidth : window.innerWidth;
+            const pH = island.offsetParent ? island.offsetParent.clientHeight : window.innerHeight;
+            const iW = island.offsetWidth;
+            const iH = island.offsetHeight;
 
-            newLeft = Math.max(8, Math.min(newLeft, maxLeft));
-            newTop = Math.max(8, Math.min(newTop, maxTop));
+            newLeft = Math.max(8, Math.min(newLeft, pW - iW - 8));
+            newTop = Math.max(8, Math.min(newTop, pH - iH - 8));
 
             island.style.left = `${newLeft}px`;
             island.style.top = `${newTop}px`;
@@ -2189,9 +2208,9 @@ class WebControllerApp {
     }
 
     async refreshDeviceList() {
-        if (!this.currentUser) return;
+        const userId = this.currentUser ? this.currentUser.userId : 'user_admin';
         try {
-            const resp = await this.apiFetch(`/api/v1/devices?userId=${encodeURIComponent(this.currentUser.userId)}`);
+            const resp = await this.apiFetch(`/api/v1/devices?userId=${encodeURIComponent(userId)}`);
             if (!resp.ok) throw new Error(`Device list failed: HTTP ${resp.status}`);
 
             const allDevices = await resp.json();
@@ -2419,9 +2438,9 @@ class WebControllerApp {
                 this.startSession();
             });
 
-            card.querySelector('.btn-card-copy-token').addEventListener('click', () => {
-                navigator.clipboard.writeText(savedKey);
-                this.showToast(`Copied token for ${dev.hostname}`, 'success');
+            card.querySelector('.btn-card-copy-token').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.copyToClipboard(savedKey, `Copied token for ${dev.hostname}`);
             });
 
             container.appendChild(card);
@@ -2434,8 +2453,42 @@ class WebControllerApp {
         } else {
             this.dom.connectionsGrid.innerHTML = '<div class="device-empty-state"><div class="mini-spinner"></div> Loading enrolled endpoints...</div>';
         }
-        await this.refreshDeviceList();
-        this.renderEnrolledEndpointsList();
+        try {
+            await this.refreshDeviceList();
+        } catch (err) {
+            console.warn('Failed to refresh device list:', err);
+        } finally {
+            this.renderEnrolledEndpointsList();
+        }
+    }
+
+    copyToClipboard(text, successMsg = 'Copied to clipboard') {
+        if (!text) return;
+        const fallbackCopy = (val) => {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = val;
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                ta.style.top = '-9999px';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+                if (ok && successMsg) this.showToast(successMsg, 'success');
+            } catch (err) {
+                this.showToast('Unable to copy to clipboard', 'warning');
+            }
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text)
+                .then(() => { if (successMsg) this.showToast(successMsg, 'success'); })
+                .catch(() => fallbackCopy(text));
+        } else {
+            fallbackCopy(text);
+        }
     }
 
     escapeHtml(str) {

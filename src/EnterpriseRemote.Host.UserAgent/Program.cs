@@ -32,6 +32,19 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Explicit kill-switch override / reset
+        if (args.Any(a => a.Equals("--clear-kill-switch", StringComparison.OrdinalIgnoreCase)))
+        {
+            ClearKillSwitch();
+        }
+
+        // KILL SWITCH GUARD: If STOP was requested, UserAgent must NEVER run or respawn!
+        if (IsKillSwitchActive())
+        {
+            Console.WriteLine("[!] Remote Streaming KILL SWITCH is active. EnterpriseRemote.Host.UserAgent will not run.");
+            return 0;
+        }
+
         // Auto-elevate if explicitly requested via --elevate flag
         if (!IsAdministrator() && args.Any(a => a.Equals("--elevate", StringComparison.OrdinalIgnoreCase)))
         {
@@ -153,6 +166,9 @@ public static class Program
         };
         tray.OnExitRequested += () =>
         {
+            // KILL SWITCH: Lock down so Watchdog service or SCM can NEVER respawn UserAgent!
+            ActivateKillSwitch();
+            KillAllRemoteProcesses();
             cts.Cancel();
             try { Application.Exit(); } catch { }
         };
@@ -297,5 +313,70 @@ public static class Program
         public string Hostname { get; set; } = string.Empty;
         public string ControlPlaneUrl { get; set; } = string.Empty;
         public string? PermanentAccessToken { get; set; }
+    }
+
+    public static bool IsKillSwitchActive()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string flag1 = System.IO.Path.Combine(programData, "EnterpriseRemote", "kill_switch.flag");
+            string flag2 = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kill_switch.flag");
+            string flag3 = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "kill_switch.flag");
+            return System.IO.File.Exists(flag1) || System.IO.File.Exists(flag2) || System.IO.File.Exists(flag3);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static void ActivateKillSwitch()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string dir = System.IO.Path.Combine(programData, "EnterpriseRemote");
+            System.IO.Directory.CreateDirectory(dir);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "kill_switch.flag"), DateTime.UtcNow.ToString("o"));
+        }
+        catch { }
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kill_switch.flag"), DateTime.UtcNow.ToString("o"));
+        }
+        catch { }
+        try
+        {
+            System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "kill_switch.flag"), DateTime.UtcNow.ToString("o"));
+        }
+        catch { }
+    }
+
+    public static void ClearKillSwitch()
+    {
+        try
+        {
+            string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            string flag1 = System.IO.Path.Combine(programData, "EnterpriseRemote", "kill_switch.flag");
+            string flag2 = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kill_switch.flag");
+            string flag3 = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "kill_switch.flag");
+            if (System.IO.File.Exists(flag1)) System.IO.File.Delete(flag1);
+            if (System.IO.File.Exists(flag2)) System.IO.File.Delete(flag2);
+            if (System.IO.File.Exists(flag3)) System.IO.File.Delete(flag3);
+        }
+        catch { }
+    }
+
+    public static void KillAllRemoteProcesses()
+    {
+        try
+        {
+            foreach (var proc in System.Diagnostics.Process.GetProcessesByName("EnterpriseRemote.Host.Service"))
+            {
+                try { proc.Kill(true); } catch { }
+            }
+        }
+        catch { }
     }
 }
