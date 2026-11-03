@@ -11,9 +11,10 @@ export const InputEventType = {
     KeyDown: 0x10,
     KeyUp: 0x11,
     SwitchDisplay: 0x20,
-    SwitchDesktop: 0x21,
-    DesktopListUpdate: 0x22,
-    CursorUpdate: 0x25,
+    SwitchDesktop: 0x50,
+    DesktopListUpdate: 0x51,
+    CursorUpdate: 0x52,
+    CursorPosition: 0x53,
     HostStatus: 0x26,
     StreamConfig: 0x35,
     LatencyPing: 0x40,
@@ -166,6 +167,38 @@ export function tryDeserializeCursorUpdate(dataView) {
     const shape = dataView.getUint8(1);
     return {
         shape,
+        cssCursor: CursorCssMap[shape] || 'default'
+    };
+}
+
+/**
+ * Tries to deserialize a real-time CursorPosition packet: 11 bytes
+ * [0]: Type (0x53)
+ * [1..2]: X (UInt16, Little Endian)
+ * [3..4]: Y (UInt16, Little Endian)
+ * [5..6]: DisplayWidth (UInt16, Little Endian)
+ * [7..8]: DisplayHeight (UInt16, Little Endian)
+ * [9]: CursorShape (UInt8)
+ * [10]: Visible (UInt8, 1 or 0)
+ */
+export function tryDeserializeCursorPosition(dataView) {
+    if (dataView.byteLength < 11 || dataView.getUint8(0) !== InputEventType.CursorPosition) {
+        return null;
+    }
+    const x = dataView.getUint16(1, true);
+    const y = dataView.getUint16(3, true);
+    const width = dataView.getUint16(5, true);
+    const height = dataView.getUint16(7, true);
+    const shape = dataView.getUint8(9);
+    const visible = dataView.getUint8(10) !== 0;
+
+    return {
+        x,
+        y,
+        width: Math.max(1, width),
+        height: Math.max(1, height),
+        shape,
+        visible,
         cssCursor: CursorCssMap[shape] || 'default'
     };
 }

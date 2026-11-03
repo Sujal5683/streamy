@@ -20,7 +20,9 @@ public enum InputEventType : byte
     /// <summary>Host-to-controller notification of available desktops and displays.</summary>
     DesktopListUpdate = 0x51,
     /// <summary>Host-to-controller notification of the current remote cursor shape.</summary>
-    CursorUpdate = 0x52
+    CursorUpdate = 0x52,
+    /// <summary>Host-to-controller notification of real-time remote cursor position and visibility.</summary>
+    CursorPosition = 0x53
 }
 
 public enum MouseButton : byte
@@ -475,4 +477,50 @@ public static class DataChannelProtocol
         shape = (RemoteCursorShape)data[1];
         return true;
     }
+
+    // ─── CursorPosition packet ───────────────────────────────────────────────────
+    // Wire layout: [0x53:1][X:2 LE][Y:2 LE][DisplayWidth:2 LE][DisplayHeight:2 LE][CursorShape:1][Visible:1] → exactly 11 bytes
+
+    /// <summary>Serializes real-time remote cursor position and visibility into an 11-byte wire packet.</summary>
+    public static byte[] SerializeCursorPosition(in CursorPositionPacket packet)
+    {
+        byte[] buffer = new byte[11];
+        buffer[0] = (byte)InputEventType.CursorPosition;
+        BitConverter.TryWriteBytes(buffer.AsSpan(1, 2), packet.X);
+        BitConverter.TryWriteBytes(buffer.AsSpan(3, 2), packet.Y);
+        BitConverter.TryWriteBytes(buffer.AsSpan(5, 2), packet.DisplayWidth);
+        BitConverter.TryWriteBytes(buffer.AsSpan(7, 2), packet.DisplayHeight);
+        buffer[9] = (byte)packet.Shape;
+        buffer[10] = (byte)(packet.Visible ? 1 : 0);
+        return buffer;
+    }
+
+    /// <summary>Tries to deserialize real-time cursor position from raw bytes.</summary>
+    public static bool TryDeserializeCursorPosition(ReadOnlySpan<byte> data, out CursorPositionPacket packet)
+    {
+        if (data.Length < 11 || data[0] != (byte)InputEventType.CursorPosition)
+        {
+            packet = default;
+            return false;
+        }
+
+        ushort x = BitConverter.ToUInt16(data.Slice(1, 2));
+        ushort y = BitConverter.ToUInt16(data.Slice(3, 2));
+        ushort w = BitConverter.ToUInt16(data.Slice(5, 2));
+        ushort h = BitConverter.ToUInt16(data.Slice(7, 2));
+        RemoteCursorShape shape = (RemoteCursorShape)data[9];
+        bool visible = data[10] != 0;
+
+        packet = new CursorPositionPacket(x, y, w, h, shape, visible);
+        return true;
+    }
 }
+
+public readonly record struct CursorPositionPacket(
+    ushort X,
+    ushort Y,
+    ushort DisplayWidth,
+    ushort DisplayHeight,
+    RemoteCursorShape Shape,
+    bool Visible);
+

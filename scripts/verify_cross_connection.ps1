@@ -85,13 +85,32 @@ try {
     Write-Host "  [B] Input Click Packet: Sent MouseDown (Left, X=0.5, Y=0.5) -> Host Received $($hostRxResult.Count) bytes (Type=$($hostRxBuffer[0]), NormX=$rxNormX, NormY=$rxNormY)"
     if ($hostRxResult.Count -ne 21 -or $rxNormX -ne 0.5 -or $rxNormY -ne 0.5) { throw "Input packet mismatch!" }
 
+    # Test C: Viewer sends Keyboard Packet -> Host receives
+    # Protocol: [Type (4=KeyDown), VirtualKeyCode (0x41), ScanCode (0x1E), Modifiers (0), UnicodeChar (65), Timestamp (uint64)] = 18 bytes
+    $keyPacket = New-Object byte[] 18
+    $keyPacket[0] = 0x04 # KeyDown
+    [System.BitConverter]::GetBytes([uint16]0x41).CopyTo($keyPacket, 1) # 'A'
+    [System.BitConverter]::GetBytes([uint16]0x1E).CopyTo($keyPacket, 3) # ScanCode
+    $keyPacket[5] = 0x00 # Modifiers
+    [System.BitConverter]::GetBytes([uint32]65).CopyTo($keyPacket, 6)   # UnicodeChar 'A'
+    [System.BitConverter]::GetBytes([uint64]123456790).CopyTo($keyPacket, 10) # Timestamp
+
+    $wsViewer.SendAsync([System.ArraySegment[byte]]::new($keyPacket), [System.Net.WebSockets.WebSocketMessageType]::Binary, $true, $cts.Token).GetAwaiter().GetResult()
+
+    $hostKeyRxBuffer = New-Object byte[] 4096
+    $hostKeyRxResult = $wsHost.ReceiveAsync([System.ArraySegment[byte]]::new($hostKeyRxBuffer), $cts.Token).GetAwaiter().GetResult()
+    $rxVk = [System.BitConverter]::ToUInt16($hostKeyRxBuffer, 1)
+    $rxUnicode = [System.BitConverter]::ToUInt32($hostKeyRxBuffer, 6)
+    Write-Host "  [C] Keyboard Input Packet: Sent KeyDown (VK=0x41 'A', Unicode=65) -> Host Received $($hostKeyRxResult.Count) bytes (Type=$($hostKeyRxBuffer[0]), VK=0x$("{0:X2}" -f $rxVk), Unicode=$rxUnicode)"
+    if ($hostKeyRxResult.Count -ne 18 -or $rxVk -ne 0x41 -or $rxUnicode -ne 65) { throw "Keyboard packet mismatch!" }
+
     # Close WebSockets cleanly
     $wsViewer.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Done", $cts.Token).GetAwaiter().GetResult()
     $wsHost.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Done", $cts.Token).GetAwaiter().GetResult()
 
     Write-Host "`n==============================================================================="
-    Write-Host " [SUCCESS] 100% Cross-Connection Verified! Both video relay & mouse click input"
-    Write-Host " exchange completed flawlessly with sub-millisecond roundtrip."
+    Write-Host " [SUCCESS] 100% Cross-Connection Verified! Video relay, mouse click & keyboard"
+    Write-Host " input exchange completed flawlessly with sub-millisecond roundtrip."
     Write-Host "==============================================================================="
 }
 catch {

@@ -10,6 +10,7 @@ import {
     serializeSwitchDesktop,
     tryDeserializeLatencyPong,
     tryDeserializeCursorUpdate,
+    tryDeserializeCursorPosition,
     tryDeserializeDesktopList,
     tryDeserializeHostStatus
 } from './protocol.js';
@@ -25,6 +26,7 @@ export class RemoteStreamClient {
         this.isPaused = false;
         this.deviceId = null;
         this.sessionId = null;
+        this.remoteCursor = null;
 
         // Viewport & frame metrics
         this.scaleMode = 'fit'; // 'fit' | 'stretch' | 'original'
@@ -178,11 +180,23 @@ export class RemoteStreamClient {
         const view = new DataView(buffer);
         const firstByte = view.getUint8(0);
 
-        // 1. Cursor update packet (0x25, 2 bytes)
+        // 1. Cursor shape update packet (0x52, 2 bytes)
         if (len === 2 && firstByte === InputEventType.CursorUpdate) {
             const cursorInfo = tryDeserializeCursorUpdate(view);
             if (cursorInfo) {
                 this.onCursorChange(cursorInfo.cssCursor);
+            }
+            return;
+        }
+
+        // 1B. Real-Time Remote Cursor Position packet (0x53, 11 bytes)
+        if (len === 11 && firstByte === InputEventType.CursorPosition) {
+            const pos = tryDeserializeCursorPosition(view);
+            if (pos) {
+                this.remoteCursor = pos;
+                if (pos.cssCursor && this.onCursorChange) {
+                    this.onCursorChange(pos.cssCursor);
+                }
             }
             return;
         }
@@ -400,6 +414,77 @@ export class RemoteStreamClient {
         }
 
         ctx.drawImage(bitmap, rx, ry, rw, rh);
+
+        // Hardware-accelerated real-time remote cursor overlay
+        this.drawRemoteCursor(ctx, rx, ry, rw, rh);
+    }
+
+    /**
+     * Renders real-time remote cursor directly onto the canvas with zero lag
+     */
+    drawRemoteCursor(ctx, rx, ry, rw, rh) {
+        if (!this.remoteCursor || !this.remoteCursor.visible) return;
+
+        const rc = this.remoteCursor;
+        if (rc.width <= 0 || rc.height <= 0) return;
+
+        const normX = rc.x / rc.width;
+        const normY = rc.y / rc.height;
+        if (normX < 0 || normX > 1 || normY < 0 || normY > 1) return;
+
+        const px = rx + (normX * rw);
+        const py = ry + (normY * rh);
+
+        ctx.save();
+        ctx.translate(px, py);
+
+        if (rc.shape === 2) {
+            // Text I-Beam
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-4, -8); ctx.lineTo(4, -8);
+            ctx.moveTo(0, -8); ctx.lineTo(0, 8);
+            ctx.moveTo(-4, 8); ctx.lineTo(4, 8);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#05070e';
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+        } else if (rc.shape === 7) {
+            // Precision Crosshair
+            ctx.strokeStyle = '#00e5ff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-8, 0); ctx.lineTo(8, 0);
+            ctx.moveTo(0, -8); ctx.lineTo(0, 8);
+            ctx.stroke();
+        } else {
+            // Universal High-Visibility Cursor Arrow
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, 16);
+            ctx.lineTo(4, 12);
+            ctx.lineTo(8, 20);
+            ctx.lineTo(11, 19);
+            ctx.lineTo(7, 11);
+            ctx.lineTo(12, 11);
+            ctx.closePath();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.lineWidth = 1.6;
+            ctx.strokeStyle = '#0a0e1a';
+            ctx.stroke();
+
+            // Vibrant cyan tip indicator to guarantee 100% visibility over dark terminals and white docs
+            ctx.fillStyle = '#00e5ff';
+            ctx.beginPath();
+            ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
     }
 
     setScaleMode(mode) {

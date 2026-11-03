@@ -19,7 +19,6 @@ public sealed class WindowsSendInputSink : IInputSink
 {
     private int _lastInjectedPhysX = -1;
     private int _lastInjectedPhysY = -1;
-    private static long _lastMouseDownTicks = 0;
 
     public Action<byte[]>? ElevatedFallback { get; set; }
 
@@ -53,16 +52,7 @@ public sealed class WindowsSendInputSink : IInputSink
         int normX = (int)Math.Clamp(Math.Round(((double)(physX - vLeft) * 65535.0) / Math.Max(1, vWidth - 1)), 0, 65535);
         int normY = (int)Math.Clamp(Math.Round(((double)(physY - vTop) * 65535.0) / Math.Max(1, vHeight - 1)), 0, 65535);
 
-        // Check if calling thread is attached to a custom secure desktop (e.g. SEBDesktop, Winlogon)
-        bool isCustomDesktop = Capture.DesktopSwitchManager.IsCustomOrProtectedDesktopActive(out string desktopName) &&
-                               !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
-
-        // Resolve target and foreground windows
-        POINT pt = new POINT { x = physX, y = physY };
-        IntPtr targetHwnd = WindowFromPoint(pt);
-        bool isElevatedTarget = IsWindowElevated(targetHwnd);
-
-        // 2. High-speed, unblocked MouseMove routing (Triple-Drive: SetCursorPos + mouse_event + SendInput)
+        // 2. High-speed, unblocked MouseMove routing (Atomic SetCursorPos + hardware mouse_event)
         if (type == InputEventType.MouseMove)
         {
             if (physX == _lastInjectedPhysX && physY == _lastInjectedPhysY)
@@ -73,47 +63,22 @@ public sealed class WindowsSendInputSink : IInputSink
             _lastInjectedPhysX = physX;
             _lastInjectedPhysY = physY;
 
-            // Route 1: Direct Win32 Cursor warp
+            // Route 1: Direct Win32 Cursor warp (0ms cursor positioning)
             SetCursorPos(physX, physY);
 
-            // Route 2: Driver-level hardware mouse motion (ControlOS companion engine - moves in win32k.sys)
+            // Route 2: Driver-level hardware mouse motion in win32k.sys
             mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE, (uint)normX, (uint)normY, 0, UIntPtr.Zero);
-
-            // Route 3: Virtual desktop SendInput packet
-            var moveInput = new INPUT
-            {
-                type = INPUT_MOUSE,
-                u = new InputUnion
-                {
-                    mi = new MOUSEINPUT
-                    {
-                        dx = normX,
-                        dy = normY,
-                        mouseData = 0,
-                        dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE,
-                        time = 0,
-                        dwExtraInfo = IntPtr.Zero
-                    }
-                }
-            };
-            SendInput(1, new[] { moveInput }, Marshal.SizeOf<INPUT>());
-
-            // Route 4: If on custom secure desktop or elevated target, mirror move to Session 0 SYSTEM injector
-            if ((isCustomDesktop || isElevatedTarget) && ElevatedFallback != null)
-            {
-                var movePacket = new MouseInputPacket(
-                    InputEventType.MouseMove,
-                    MouseButton.None,
-                    0,
-                    normalizedX >= 0f ? normalizedX : (float)normX / 65535f,
-                    normalizedY >= 0f ? normalizedY : (float)normY / 65535f,
-                    0,
-                    (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                byte[] payload = DataChannelProtocol.SerializeMouse(in movePacket);
-                ElevatedFallback(payload);
-            }
             return;
         }
+
+        // Check if calling thread is attached to a custom secure desktop (e.g. SEBDesktop, Winlogon)
+        bool isCustomDesktop = Capture.DesktopSwitchManager.IsCustomOrProtectedDesktopActive(out string desktopName) &&
+                               !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
+
+        // Resolve target and foreground windows only for physical button clicks
+        POINT pt = new POINT { x = physX, y = physY };
+        IntPtr targetHwnd = WindowFromPoint(pt);
+        bool isElevatedTarget = IsWindowElevated(targetHwnd);
 
         // 3. Button Click & Wheel Injection (Triple-Drive with Trap Neutralization)
         // Neutralize cursor containment traps (ClipCursor) and exclusive mouse captures (ReleaseCapture)
@@ -130,23 +95,6 @@ public sealed class WindowsSendInputSink : IInputSink
         if (type == InputEventType.MouseButtonDown && targetHwnd != IntPtr.Zero && fgHwnd != IntPtr.Zero && targetHwnd != fgHwnd)
         {
             BreakForegroundLock(targetHwnd, fgHwnd);
-        }
-
-        // Physical Actuation Hold Window: Record Down timestamp and enforce 35ms hold window before Up
-        if (type == InputEventType.MouseButtonDown)
-        {
-            _lastMouseDownTicks = System.Diagnostics.Stopwatch.GetTimestamp();
-        }
-        else if (type == InputEventType.MouseButtonUp)
-        {
-            if (_lastMouseDownTicks > 0)
-            {
-                long elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _lastMouseDownTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency;
-                if (elapsedMs < 35)
-                {
-                    Thread.Sleep((int)(35 - elapsedMs));
-                }
-            }
         }
 
         uint flags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE;
@@ -190,16 +138,20 @@ public sealed class WindowsSendInputSink : IInputSink
         // Dispatch 1: Win32 SendInput (Atomic movement + button actuation)
         uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
 
-        // Dispatch 2: Driver-level mouse_event (ControlOS method, hardware driver level in win32k.sys)
-        if (mouseEventFlag != 0)
+        // Only invoke secondary driver or message fallbacks if SendInput failed (sent == 0)
+        if (sent == 0)
         {
-            mouse_event(mouseEventFlag, (uint)normX, (uint)normY, (uint)wheelDelta, UIntPtr.Zero);
-        }
+            // Dispatch 2: Driver-level mouse_event (ControlOS method, hardware driver level in win32k.sys)
+            if (mouseEventFlag != 0)
+            {
+                mouse_event(mouseEventFlag, (uint)normX, (uint)normY, (uint)wheelDelta, UIntPtr.Zero);
+            }
 
-        // Dispatch 3: Direct PostMessage to target HWND (bypasses WH_MOUSE_LL hooks installed by exam/security apps)
-        if (type == InputEventType.MouseButtonDown || type == InputEventType.MouseButtonUp)
-        {
-            PostDirectMouseMessage(targetHwnd, physX, physY, button, type);
+            // Dispatch 3: Direct PostMessage to target HWND (bypasses WH_MOUSE_LL hooks installed by exam/security apps)
+            if (type == InputEventType.MouseButtonDown || type == InputEventType.MouseButtonUp)
+            {
+                PostDirectMouseMessage(targetHwnd, physX, physY, button, type);
+            }
         }
 
         // Dispatch 4: Session 0 SYSTEM IPC (bypasses UIPI and custom secure desktops)
@@ -214,7 +166,7 @@ public sealed class WindowsSendInputSink : IInputSink
                 wheelDelta,
                 (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             byte[] payload = DataChannelProtocol.SerializeMouse(in mousePacket);
-            ElevatedFallback(payload);
+            ElevatedFallback?.Invoke(payload);
         }
     }
 
@@ -261,7 +213,7 @@ public sealed class WindowsSendInputSink : IInputSink
                     unicodeChar,
                     (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                 byte[] payload = DataChannelProtocol.SerializeKeyboard(in keyPacket);
-                ElevatedFallback(payload);
+                ElevatedFallback?.Invoke(payload);
             }
         }
         else
@@ -283,24 +235,19 @@ public sealed class WindowsSendInputSink : IInputSink
                 }
             };
 
-            // Route 1: Win32 SendInput
+            // Route 1: Win32 SendInput (Atomic primary injection - exactly 1 keystroke)
             uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
 
-            // Route 2: Driver-level keybd_event (ControlOS companion engine)
-            uint keybdFlags = 0;
-            if (!isDown) keybdFlags |= 0x0002; // KEYEVENTF_KEYUP
-            if ((flags & KEYEVENTF_EXTENDEDKEY) != 0) keybdFlags |= 0x0001; // KEYEVENTF_EXTENDEDKEY
-            keybd_event((byte)virtualKey, (byte)actualScan, keybdFlags, UIntPtr.Zero);
-
-            // Route 3: Direct PostMessage to active foreground window
-            IntPtr fgHwnd = GetForegroundWindow();
-            if (fgHwnd != IntPtr.Zero)
+            // Route 2: Driver-level keybd_event ONLY as fallback when SendInput fails (sent == 0)
+            if (sent == 0)
             {
-                uint msg = isDown ? 0x0100u : 0x0101u; // WM_KEYDOWN / WM_KEYUP
-                PostMessage(fgHwnd, msg, (IntPtr)virtualKey, (IntPtr)(actualScan << 16));
+                uint keybdFlags = 0;
+                if (!isDown) keybdFlags |= 0x0002; // KEYEVENTF_KEYUP
+                if ((flags & KEYEVENTF_EXTENDEDKEY) != 0) keybdFlags |= 0x0001; // KEYEVENTF_EXTENDEDKEY
+                keybd_event((byte)virtualKey, (byte)actualScan, keybdFlags, UIntPtr.Zero);
             }
 
-            // Route 4: Session 0 SYSTEM IPC bridge fallback
+            // Route 3: Session 0 SYSTEM IPC bridge fallback ONLY if SendInput was blocked or custom desktop
             if ((sent == 0 || isCustomDesktop) && ElevatedFallback != null)
             {
                 var keyPacket = new KeyboardInputPacket(
@@ -311,7 +258,7 @@ public sealed class WindowsSendInputSink : IInputSink
                     unicodeChar,
                     (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                 byte[] payload = DataChannelProtocol.SerializeKeyboard(in keyPacket);
-                ElevatedFallback(payload);
+                ElevatedFallback?.Invoke(payload);
             }
         }
     }
@@ -598,6 +545,7 @@ public sealed class InputInjectionEngine : IDisposable
     public int LastInjectedScreenX => _lastInjectedScreenX;
     public int LastInjectedScreenY => _lastInjectedScreenY;
     public long LastInjectedTimeMs => Interlocked.Read(ref _lastInjectedTimeMs);
+    public event Action? OnInputInjected;
     private readonly IInputSink _sink;
     private DisplayInfo _activeDisplay;
     private int _eventsInCurrentSecond;
@@ -678,6 +626,11 @@ public sealed class InputInjectionEngine : IDisposable
             catch { }
         }
 
+        if (copy.Type is InputEventType.MouseButtonDown or InputEventType.MouseButtonUp)
+        {
+            OnInputInjected?.Invoke();
+        }
+
         // Fallback to direct synchronous execution
         _sink.InjectMouse(pixelX, pixelY, packet.Button, packet.Type, packet.WheelDelta, packet.NormalizedX, packet.NormalizedY);
         return true;
@@ -685,7 +638,10 @@ public sealed class InputInjectionEngine : IDisposable
 
     public bool ProcessKeyboardPacket(in KeyboardInputPacket packet)
     {
-        if (!CheckRateLimit()) return false;
+        bool isDown = packet.Type == InputEventType.KeyDown;
+
+        // Never rate-limit or drop KeyUp packets to ensure keys never get stuck
+        if (isDown && !CheckRateLimit()) return false;
 
         // 1. Block Windows Key injection and Ctrl+Alt+Del from raw packets
         if (packet.VirtualKeyCode == VK_LWIN || packet.VirtualKeyCode == VK_RWIN)
@@ -698,23 +654,9 @@ public sealed class InputInjectionEngine : IDisposable
             return false;
         }
 
-        bool isDown = packet.Type == InputEventType.KeyDown;
-        var copy = packet;
-
-        if (_sink is WindowsSendInputSink && !_isDisposed && !_inputQueue.IsAddingCompleted)
-        {
-            try
-            {
-                _inputQueue.Add(() =>
-                {
-                    _sink.InjectKeyboard(copy.VirtualKeyCode, copy.ScanCode, isDown, copy.UnicodeChar);
-                });
-                return true;
-            }
-            catch { }
-        }
-
+        // Direct high-priority execution with 0ms queue latency
         _sink.InjectKeyboard(packet.VirtualKeyCode, packet.ScanCode, isDown, packet.UnicodeChar);
+        OnInputInjected?.Invoke();
         return true;
     }
 
@@ -730,7 +672,6 @@ public sealed class InputInjectionEngine : IDisposable
             {
                 try
                 {
-                    Capture.DesktopSwitchManager.AttachCallingThreadToInputDesktop(out _);
                     action();
                 }
                 catch { }

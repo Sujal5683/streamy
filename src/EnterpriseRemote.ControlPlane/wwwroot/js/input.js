@@ -111,7 +111,7 @@ export class InputHandler {
             return false;
         });
 
-        // Mouse Move with 14ms cadence throttling (matching 60Hz input polling in native client)
+        // Mouse Move with 4ms cadence throttling (up to 250Hz input polling for ultra-low latency)
         c.addEventListener('mousemove', (e) => {
             if (!this.inputEnabled || !this.streamClient.isConnected) return;
 
@@ -119,7 +119,7 @@ export class InputHandler {
             if (!inside && !this.isMouseDown) return;
 
             const now = performance.now();
-            if (!this.isMouseDown && (now - this.lastMouseMoveTime) < 14.0) {
+            if (!this.isMouseDown && (now - this.lastMouseMoveTime) < 4.0) {
                 return;
             }
 
@@ -216,9 +216,25 @@ export class InputHandler {
     initKeyboardListeners() {
         const c = this.canvas;
         this.isHoveringCanvas = false;
+        this.pressedKeys = new Map();
 
         c.addEventListener('mouseenter', () => { this.isHoveringCanvas = true; });
         c.addEventListener('mouseleave', () => { this.isHoveringCanvas = false; });
+
+        // Release all pressed keys on blur or tab switch to prevent stuck keys on remote machine
+        const releaseAllPressedKeys = () => {
+            if (this.pressedKeys.size === 0) return;
+            for (const [vk] of this.pressedKeys) {
+                const packet = serializeKeyboard(InputEventType.KeyUp, vk, 0, ModifierKeys.None, 0);
+                this.streamClient.sendPacket(packet);
+            }
+            this.pressedKeys.clear();
+        };
+
+        window.addEventListener('blur', releaseAllPressedKeys);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) releaseAllPressedKeys();
+        });
 
         const handleKey = (e, isDown) => {
             if (!this.inputEnabled || !this.streamClient.isConnected) return;
@@ -243,10 +259,26 @@ export class InputHandler {
             }
 
             const vk = KEY_CODE_TO_VK[e.code] || e.keyCode || 0;
-            if (vk === 0) return;
+            const unicode = (e.key && e.key.length === 1) ? e.key.charCodeAt(0) : 0;
+            if (vk === 0 && unicode === 0) return;
+
+            const now = performance.now();
+
+            if (isDown) {
+                // If this is an OS auto-repeat event (key held down)
+                if (e.repeat) {
+                    const lastTime = this.pressedKeys.get(vk) || 0;
+                    // Clamp auto-repeat cadence to ~35ms (~28 chars/sec) to prevent WAN congestion
+                    if ((now - lastTime) < 35.0) {
+                        return;
+                    }
+                }
+                this.pressedKeys.set(vk, now);
+            } else {
+                this.pressedKeys.delete(vk);
+            }
 
             const mods = this.getModifiers(e);
-            const unicode = (e.key && e.key.length === 1) ? e.key.charCodeAt(0) : 0;
             const type = isDown ? InputEventType.KeyDown : InputEventType.KeyUp;
 
             const packet = serializeKeyboard(type, vk, 0, mods, unicode);

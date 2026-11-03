@@ -271,4 +271,113 @@ public class InputAndSessionTests
         Assert.Equal(InputEventType.MouseButtonDown, p2.Type);
         Assert.Equal(MouseButton.Left, p2.Button);
     }
+
+    [Fact]
+    public void InputInjectionEngine_KeyboardDeduplication_InjectsSingleKeystrokeAndFiresOnInputInjected()
+    {
+        var display = new DisplayInfo { Left = 0, Top = 0, Width = 1920, Height = 1080 };
+        var mockSink = new MockInputSink();
+        var engine = new InputInjectionEngine(display, mockSink);
+
+        bool eventFired = false;
+        engine.OnInputInjected += () => eventFired = true;
+
+        var keyDown = new KeyboardInputPacket(
+            Type: InputEventType.KeyDown,
+            VirtualKeyCode: 0x41, // 'A'
+            ScanCode: 0x1E,
+            Modifiers: ModifierKeys.None,
+            UnicodeChar: 65,
+            TimestampMillis: 1000);
+
+        bool processed = engine.ProcessKeyboardPacket(keyDown);
+
+        Assert.True(processed);
+        // Deduplication guarantee: exactly 1 injection, no 3x/4x duplicate key events
+        Assert.Single(mockSink.InjectedKeys);
+        var injected = mockSink.InjectedKeys[0];
+        Assert.Equal((ushort)0x41, injected.Vk);
+        Assert.Equal((ushort)0x1E, injected.Scan);
+        Assert.True(injected.IsDown);
+        Assert.Equal(65u, injected.Unicode);
+        Assert.True(eventFired, "OnInputInjected event must be raised to trigger immediate video frame update");
+    }
+
+    [Fact]
+    public void InputInjectionEngine_KeyUp_NeverDroppedByRateLimiter()
+    {
+        var display = new DisplayInfo { Left = 0, Top = 0, Width = 1920, Height = 1080 };
+        var mockSink = new MockInputSink();
+        var engine = new InputInjectionEngine(display, mockSink);
+
+        // Saturate rate limiter with KeyDown events
+        for (int i = 0; i < 400; i++)
+        {
+            var keyDown = new KeyboardInputPacket(InputEventType.KeyDown, 0x41, 0x1E, ModifierKeys.None, 65, 1000);
+            engine.ProcessKeyboardPacket(keyDown);
+        }
+
+        mockSink.InjectedKeys.Clear();
+
+        // Even if rate limit is exhausted, KeyUp events MUST NEVER be dropped (prevents stuck keys)
+        for (int i = 0; i < 50; i++)
+        {
+            var keyUp = new KeyboardInputPacket(InputEventType.KeyUp, (ushort)(0x41 + (i % 10)), 0, ModifierKeys.None, 0, 1000);
+            bool processed = engine.ProcessKeyboardPacket(keyUp);
+            Assert.True(processed, "KeyUp must always be processed regardless of rate limit");
+        }
+
+        Assert.Equal(50, mockSink.InjectedKeys.Count);
+        foreach (var injected in mockSink.InjectedKeys)
+        {
+            Assert.False(injected.IsDown);
+        }
+    }
+
+    [Fact]
+    public void InputInjectionEngine_UnicodeInput_DispatchesWithUnicodeChar()
+    {
+        var display = new DisplayInfo { Left = 0, Top = 0, Width = 1920, Height = 1080 };
+        var mockSink = new MockInputSink();
+        var engine = new InputInjectionEngine(display, mockSink);
+
+        var unicodePacket = new KeyboardInputPacket(
+            Type: InputEventType.KeyDown,
+            VirtualKeyCode: 0,
+            ScanCode: 0,
+            Modifiers: ModifierKeys.None,
+            UnicodeChar: 0x20AC, // Euro symbol €
+            TimestampMillis: 1000);
+
+        bool processed = engine.ProcessKeyboardPacket(unicodePacket);
+        Assert.True(processed);
+        Assert.Single(mockSink.InjectedKeys);
+        Assert.Equal(0x20ACu, mockSink.InjectedKeys[0].Unicode);
+    }
+
+    [Fact]
+    public void DataChannelProtocol_CursorPositionPacket_RoundTripSerialization()
+    {
+        var original = new CursorPositionPacket(
+            X: 1280,
+            Y: 720,
+            DisplayWidth: 1920,
+            DisplayHeight: 1080,
+            Shape: RemoteCursorShape.IBeam,
+            Visible: true);
+
+        byte[] serialized = DataChannelProtocol.SerializeCursorPosition(in original);
+        Assert.NotNull(serialized);
+        Assert.Equal(11, serialized.Length);
+        Assert.Equal((byte)InputEventType.CursorPosition, serialized[0]);
+
+        bool success = DataChannelProtocol.TryDeserializeCursorPosition(serialized, out var deserialized);
+        Assert.True(success);
+        Assert.Equal(original.X, deserialized.X);
+        Assert.Equal(original.Y, deserialized.Y);
+        Assert.Equal(original.DisplayWidth, deserialized.DisplayWidth);
+        Assert.Equal(original.DisplayHeight, deserialized.DisplayHeight);
+        Assert.Equal(original.Shape, deserialized.Shape);
+        Assert.Equal(original.Visible, deserialized.Visible);
+    }
 }

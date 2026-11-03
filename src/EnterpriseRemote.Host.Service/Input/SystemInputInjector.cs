@@ -187,12 +187,74 @@ public static class SystemInputInjector
         };
 
         // Dispatch 1: Win32 SendInput
-        SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+        uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
 
-        // Dispatch 2: Driver-level mouse_event
-        if (mouseEventFlag != 0)
+        // Only invoke secondary driver or message fallbacks if SendInput failed (sent == 0)
+        if (sent == 0)
         {
-            mouse_event(mouseEventFlag, (uint)normX, (uint)normY, (uint)packet.WheelDelta, UIntPtr.Zero);
+            // Dispatch 2: Driver-level mouse_event
+            if (mouseEventFlag != 0)
+            {
+                mouse_event(mouseEventFlag, (uint)normX, (uint)normY, (uint)packet.WheelDelta, UIntPtr.Zero);
+            }
+
+            // Dispatch 3: Direct PostMessage / SendNotifyMessage to target HWND and Root Window (bypasses WH_MOUSE_LL)
+            if (packet.Type == InputEventType.MouseButtonDown || packet.Type == InputEventType.MouseButtonUp)
+            {
+                try
+                {
+                    POINT pt = new POINT { x = physX, y = physY };
+                    IntPtr targetHwnd = WindowFromPoint(pt);
+                    if (targetHwnd != IntPtr.Zero)
+                    {
+                        IntPtr rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+                        if (rootHwnd == IntPtr.Zero) rootHwnd = targetHwnd;
+
+                        if (packet.Type == InputEventType.MouseButtonDown)
+                        {
+                            try
+                            {
+                                SetForegroundWindow(rootHwnd);
+                                BringWindowToTop(rootHwnd);
+                            }
+                            catch { }
+                        }
+
+                        ScreenToClient(targetHwnd, ref pt);
+                        IntPtr lParam = (IntPtr)((pt.y << 16) | (pt.x & 0xFFFF));
+                        uint msg = 0;
+                        IntPtr wParam = IntPtr.Zero;
+
+                        if (packet.Type == InputEventType.MouseButtonDown)
+                        {
+                            if ((packet.Button & MouseButton.Left) != 0) { msg = WM_LBUTTONDOWN; wParam = (IntPtr)MK_LBUTTON; }
+                            else if ((packet.Button & MouseButton.Right) != 0) { msg = WM_RBUTTONDOWN; wParam = (IntPtr)MK_RBUTTON; }
+                            else if ((packet.Button & MouseButton.Middle) != 0) { msg = WM_MBUTTONDOWN; wParam = (IntPtr)MK_MBUTTON; }
+                        }
+                        else if (packet.Type == InputEventType.MouseButtonUp)
+                        {
+                            if ((packet.Button & MouseButton.Left) != 0) { msg = WM_LBUTTONUP; wParam = IntPtr.Zero; }
+                            else if ((packet.Button & MouseButton.Right) != 0) { msg = WM_RBUTTONUP; wParam = IntPtr.Zero; }
+                            else if ((packet.Button & MouseButton.Middle) != 0) { msg = WM_MBUTTONUP; wParam = IntPtr.Zero; }
+                        }
+
+                        if (msg != 0)
+                        {
+                            PostMessage(targetHwnd, msg, wParam, lParam);
+                            SendNotifyMessage(targetHwnd, msg, wParam, lParam);
+
+                            if (rootHwnd != targetHwnd && rootHwnd != IntPtr.Zero)
+                            {
+                                POINT rootPt = new POINT { x = physX, y = physY };
+                                ScreenToClient(rootHwnd, ref rootPt);
+                                IntPtr rootLParam = (IntPtr)((rootPt.y << 16) | (rootPt.x & 0xFFFF));
+                                PostMessage(rootHwnd, msg, wParam, rootLParam);
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
         }
 
         // Physical Actuation Hold Window: Record Down and enforce 35ms hold window before Up
@@ -210,64 +272,6 @@ public static class SystemInputInjector
                     Thread.Sleep((int)(35 - elapsedMs));
                 }
             }
-        }
-
-        // Dispatch 3: Direct PostMessage / SendNotifyMessage to target HWND and Root Window (bypasses WH_MOUSE_LL)
-        if (packet.Type == InputEventType.MouseButtonDown || packet.Type == InputEventType.MouseButtonUp)
-        {
-            try
-            {
-                POINT pt = new POINT { x = physX, y = physY };
-                IntPtr targetHwnd = WindowFromPoint(pt);
-                if (targetHwnd != IntPtr.Zero)
-                {
-                    IntPtr rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
-                    if (rootHwnd == IntPtr.Zero) rootHwnd = targetHwnd;
-
-                    if (packet.Type == InputEventType.MouseButtonDown)
-                    {
-                        try
-                        {
-                            SetForegroundWindow(rootHwnd);
-                            BringWindowToTop(rootHwnd);
-                        }
-                        catch { }
-                    }
-
-                    ScreenToClient(targetHwnd, ref pt);
-                    IntPtr lParam = (IntPtr)((pt.y << 16) | (pt.x & 0xFFFF));
-                    uint msg = 0;
-                    IntPtr wParam = IntPtr.Zero;
-
-                    if (packet.Type == InputEventType.MouseButtonDown)
-                    {
-                        if ((packet.Button & MouseButton.Left) != 0) { msg = WM_LBUTTONDOWN; wParam = (IntPtr)MK_LBUTTON; }
-                        else if ((packet.Button & MouseButton.Right) != 0) { msg = WM_RBUTTONDOWN; wParam = (IntPtr)MK_RBUTTON; }
-                        else if ((packet.Button & MouseButton.Middle) != 0) { msg = WM_MBUTTONDOWN; wParam = (IntPtr)MK_MBUTTON; }
-                    }
-                    else if (packet.Type == InputEventType.MouseButtonUp)
-                    {
-                        if ((packet.Button & MouseButton.Left) != 0) { msg = WM_LBUTTONUP; wParam = IntPtr.Zero; }
-                        else if ((packet.Button & MouseButton.Right) != 0) { msg = WM_RBUTTONUP; wParam = IntPtr.Zero; }
-                        else if ((packet.Button & MouseButton.Middle) != 0) { msg = WM_MBUTTONUP; wParam = IntPtr.Zero; }
-                    }
-
-                    if (msg != 0)
-                    {
-                        PostMessage(targetHwnd, msg, wParam, lParam);
-                        SendNotifyMessage(targetHwnd, msg, wParam, lParam);
-
-                        if (rootHwnd != targetHwnd && rootHwnd != IntPtr.Zero)
-                        {
-                            POINT rootPt = new POINT { x = physX, y = physY };
-                            ScreenToClient(rootHwnd, ref rootPt);
-                            IntPtr rootLParam = (IntPtr)((rootPt.y << 16) | (rootPt.x & 0xFFFF));
-                            PostMessage(rootHwnd, msg, wParam, rootLParam);
-                        }
-                    }
-                }
-            }
-            catch { }
         }
     }
 
@@ -320,14 +324,17 @@ public static class SystemInputInjector
                 }
             };
 
-            // Route 1: Win32 SendInput
-            SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
+            // Route 1: Win32 SendInput (Atomic primary injection)
+            uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
 
-            // Route 2: Driver-level keybd_event
-            uint keybdFlags = 0;
-            if (packet.Type == InputEventType.KeyUp) keybdFlags |= 0x0002;
-            if ((flags & KEYEVENTF_EXTENDEDKEY) != 0) keybdFlags |= 0x0001;
-            keybd_event((byte)packet.VirtualKeyCode, (byte)actualScan, keybdFlags, UIntPtr.Zero);
+            // Route 2: Driver-level keybd_event ONLY as fallback if SendInput failed (sent == 0)
+            if (sent == 0)
+            {
+                uint keybdFlags = 0;
+                if (packet.Type == InputEventType.KeyUp) keybdFlags |= 0x0002;
+                if ((flags & KEYEVENTF_EXTENDEDKEY) != 0) keybdFlags |= 0x0001;
+                keybd_event((byte)packet.VirtualKeyCode, (byte)actualScan, keybdFlags, UIntPtr.Zero);
+            }
         }
     }
 
@@ -463,4 +470,4 @@ public static class SystemInputInjector
         public IntPtr dwExtraInfo;
     }
     #endregion
-}
+}

@@ -57,11 +57,14 @@ public sealed class DesktopStreamingService : IDisposable
     private readonly object _frameLock = new();
     private CapturedFrame? _latestFrame;
     private long _frameSequence = 0;
-    private int _lastCursorX = -1;
-    private int _lastCursorY = -1;
+    private int _lastSentCursorX = -1;
+    private int _lastSentCursorY = -1;
+    private RemoteCursorShape _lastSentCursorShape = RemoteCursorShape.Default;
+    private bool _lastSentCursorVisible = true;
 
     // Single-Flight Zero-Bufferbloat Transmission Gate
     private readonly SemaphoreSlim _networkSendGate = new(1, 1);
+    private readonly SemaphoreSlim _immediateFrameSignal = new(0, 1);
     private long _lastSendDurationMs = 0;
 
     public DesktopStreamingService(
@@ -90,6 +93,17 @@ public sealed class DesktopStreamingService : IDisposable
             _fallbackGdiCapturer.RebindToActiveDesktop();
             try { _capturer.Initialize(); } catch { }
         };
+
+        // Wire immediate frame capture trigger on any typed key or mouse click
+        _inputEngine.OnInputInjected += TriggerImmediateFrame;
+    }
+
+    private void TriggerImmediateFrame()
+    {
+        if (_immediateFrameSignal.CurrentCount == 0)
+        {
+            try { _immediateFrameSignal.Release(); } catch { }
+        }
     }
 
     public void Start()
@@ -260,8 +274,9 @@ public sealed class DesktopStreamingService : IDisposable
                 var sendLock = new SemaphoreSlim(1, 1);
                 var sendTask = RunSendFramesLoopAsync(ws, sendLock, ct);
                 var recvTask = RunReceiveInputLoopAsync(ws, sendLock, ct);
+                var cursorTask = RunSendCursorLoopAsync(ws, sendLock, ct);
 
-                await Task.WhenAny(sendTask, recvTask);
+                await Task.WhenAny(sendTask, recvTask, cursorTask);
             }
             catch (OperationCanceledException)
             {
@@ -326,43 +341,13 @@ public sealed class DesktopStreamingService : IDisposable
                 catch { }
             }
 
-            // 2. Check live cursor position to detect cursor motion even if desktop pixels are static
-            bool cursorMoved = false;
-            try
-            {
-                var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
-                if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
-                {
-                    if (ci.ptScreenPos.x != _lastCursorX || ci.ptScreenPos.y != _lastCursorY)
-                    {
-                        _lastCursorX = ci.ptScreenPos.x;
-                        _lastCursorY = ci.ptScreenPos.y;
-                        cursorMoved = true;
-                    }
-                }
-                else
-                {
-                    // Anti-Freeze Fallback: If OS cursor is suppressed (ci.flags == 0) by SEB/lockdown apps,
-                    // fall back to latest injected remote cursor coordinates so frames keep flowing!
-                    int injX = _inputEngine.LastInjectedScreenX;
-                    int injY = _inputEngine.LastInjectedScreenY;
-                    if (injX >= 0 && injY >= 0 && (injX != _lastCursorX || injY != _lastCursorY))
-                    {
-                        _lastCursorX = injX;
-                        _lastCursorY = injY;
-                        cursorMoved = true;
-                    }
-                }
-            }
-            catch { }
-
-            // 3. Acquire freshest frame from capture handoff slot
+            // 2. Acquire freshest frame from capture handoff slot (independent of cursor motion)
             CapturedFrame? frameToEncode = null;
             bool isNewFrame = false;
 
             lock (_frameLock)
             {
-                if (_latestFrame != null && (_frameSequence != lastSentSequence || cursorMoved))
+                if (_latestFrame != null && _frameSequence != lastSentSequence)
                 {
                     frameToEncode = _latestFrame;
                     lastSentSequence = _frameSequence;
@@ -417,9 +402,9 @@ public sealed class DesktopStreamingService : IDisposable
                             : _jpegQuality;
 
                         int effectiveHeight = _maxHeight;
-                        if (_lowLatencyMode && _lastSendDurationMs > 45 && effectiveHeight == 0)
+                        if (_lowLatencyMode && _lastSendDurationMs > 150 && effectiveHeight == 0)
                         {
-                            effectiveHeight = 720; // Automatically downscale to 720p under severe WAN congestion
+                            effectiveHeight = 720; // Automatically downscale to 720p only under severe WAN bufferbloat (>150ms)
                         }
 
                         byte[] jpeg = EncodeFrameToJpeg(frameToEncode, effectiveQuality, dispLeft, dispTop, effectiveHeight, out RemoteCursorShape detectedShape);
@@ -475,7 +460,14 @@ public sealed class DesktopStreamingService : IDisposable
             sw.Stop();
             int elapsed = (int)sw.ElapsedMilliseconds;
             int delay = Math.Max(1, frameIntervalMs - elapsed);
-            await Task.Delay(delay, ct);
+            try
+            {
+                await _immediateFrameSignal.WaitAsync(delay, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 
@@ -534,6 +526,7 @@ public sealed class DesktopStreamingService : IDisposable
                     if (DataChannelProtocol.TryDeserializeMouse(remaining.Slice(0, 21), out var mousePacket))
                     {
                         _inputEngine.ProcessMousePacket(in mousePacket);
+                        if (type is 0x01 or 0x02 or 0x04) TriggerImmediateFrame();
                     }
                     offset += 21;
                 }
@@ -543,6 +536,7 @@ public sealed class DesktopStreamingService : IDisposable
                     if (DataChannelProtocol.TryDeserializeKeyboard(remaining.Slice(0, 18), out var keyPacket))
                     {
                         _inputEngine.ProcessKeyboardPacket(in keyPacket);
+                        TriggerImmediateFrame();
                     }
                     offset += 18;
                 }
@@ -658,6 +652,127 @@ public sealed class DesktopStreamingService : IDisposable
         }
     }
 
+    private async Task RunSendCursorLoopAsync(ClientWebSocket ws, SemaphoreSlim sendLock, CancellationToken ct)
+    {
+        while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
+        {
+            try
+            {
+                int currentCurX = -1;
+                int currentCurY = -1;
+                bool isVisible = false;
+                RemoteCursorShape currentShape = RemoteCursorShape.Default;
+
+                var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
+                if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
+                {
+                    currentCurX = ci.ptScreenPos.x;
+                    currentCurY = ci.ptScreenPos.y;
+                    isVisible = true;
+                    if (ci.hCursor != IntPtr.Zero)
+                    {
+                        currentShape = DetectCursorShape(ci.hCursor);
+                    }
+                }
+                else
+                {
+                    // Fallback to injected cursor if suppressed by lockdown/exam software
+                    int injX = _inputEngine.LastInjectedScreenX;
+                    int injY = _inputEngine.LastInjectedScreenY;
+                    if (injX >= 0 && injY >= 0)
+                    {
+                        currentCurX = injX;
+                        currentCurY = injY;
+                        isVisible = true;
+                    }
+                }
+
+                if (isVisible)
+                {
+                    if (currentCurX != _lastSentCursorX || currentCurY != _lastSentCursorY || currentShape != _lastSentCursorShape || !_lastSentCursorVisible)
+                    {
+                        _lastSentCursorX = currentCurX;
+                        _lastSentCursorY = currentCurY;
+                        _lastSentCursorShape = currentShape;
+                        _lastSentCursorVisible = true;
+
+                        var activeDisplay = _capturer.Display.Width > 0 ? _capturer.Display : _fallbackGdiCapturer.Display;
+                        ushort dispW = (ushort)(activeDisplay.Width > 0 ? activeDisplay.Width : (_latestFrame?.Width ?? 1920));
+                        ushort dispH = (ushort)(activeDisplay.Height > 0 ? activeDisplay.Height : (_latestFrame?.Height ?? 1080));
+                        int dispL = activeDisplay.Width > 0 ? activeDisplay.Left : 0;
+                        int dispT = activeDisplay.Height > 0 ? activeDisplay.Top : 0;
+
+                        int relX = Math.Max(0, currentCurX - dispL);
+                        int relY = Math.Max(0, currentCurY - dispT);
+
+                        var cursorPacket = new CursorPositionPacket(
+                            (ushort)Math.Min(ushort.MaxValue, relX),
+                            (ushort)Math.Min(ushort.MaxValue, relY),
+                            dispW,
+                            dispH,
+                            currentShape,
+                            true);
+
+                        byte[] rawCursorPos = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
+                        if (ws.State == WebSocketState.Open)
+                        {
+                            bool lockAcquired = await sendLock.WaitAsync(15, ct);
+                            if (lockAcquired)
+                            {
+                                try
+                                {
+                                    if (ws.State == WebSocketState.Open)
+                                    {
+                                        await ws.SendAsync(new ArraySegment<byte>(rawCursorPos), WebSocketMessageType.Binary, true, ct);
+                                    }
+                                }
+                                finally
+                                {
+                                    sendLock.Release();
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (_lastSentCursorVisible)
+                {
+                    _lastSentCursorVisible = false;
+                    var activeDisplay = _capturer.Display.Width > 0 ? _capturer.Display : _fallbackGdiCapturer.Display;
+                    ushort dispW = (ushort)(activeDisplay.Width > 0 ? activeDisplay.Width : (_latestFrame?.Width ?? 1920));
+                    ushort dispH = (ushort)(activeDisplay.Height > 0 ? activeDisplay.Height : (_latestFrame?.Height ?? 1080));
+                    var cursorPacket = new CursorPositionPacket(0, 0, dispW, dispH, RemoteCursorShape.Default, false);
+                    byte[] rawCursorPos = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
+                    if (ws.State == WebSocketState.Open)
+                    {
+                        bool lockAcquired = await sendLock.WaitAsync(15, ct);
+                        if (lockAcquired)
+                        {
+                            try
+                            {
+                                if (ws.State == WebSocketState.Open)
+                                {
+                                    await ws.SendAsync(new ArraySegment<byte>(rawCursorPos), WebSocketMessageType.Binary, true, ct);
+                                }
+                            }
+                            finally
+                            {
+                                sendLock.Release();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch { }
+
+            // Ultra-responsive 5ms cadence (~200 Hz polling) for remote cursor
+            await Task.Delay(5, ct);
+        }
+    }
+
     private byte[] EncodeFrameToJpeg(CapturedFrame frame, long quality, int displayLeft, int displayTop, int maxHeight, out RemoteCursorShape detectedShape)
     {
         detectedShape = RemoteCursorShape.Default;
@@ -714,70 +829,13 @@ public sealed class DesktopStreamingService : IDisposable
                 bmp.UnlockBits(bmpData);
             }
 
-            // Render live remote cursor onto frame buffer with exact hotspot accuracy
+            // Detect remote cursor shape for telemetry without burning cursor into video frame
             try
             {
                 var ci = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
-                int curX = -1;
-                int curY = -1;
-                IntPtr hCursor = IntPtr.Zero;
-
-                if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0)
+                if (GetCursorInfo(out ci) && (ci.flags & CURSOR_SHOWING) != 0 && ci.hCursor != IntPtr.Zero)
                 {
-                    curX = (int)((ci.ptScreenPos.x - displayLeft) * scaleX);
-                    curY = (int)((ci.ptScreenPos.y - displayTop) * scaleY);
-                    hCursor = ci.hCursor;
-                    detectedShape = DetectCursorShape(hCursor);
-                }
-                else if (frame.Pointer != null && frame.Pointer.Visible)
-                {
-                    curX = (int)((frame.Pointer.X - displayLeft) * scaleX);
-                    curY = (int)((frame.Pointer.Y - displayTop) * scaleY);
-                }
-                else
-                {
-                    // Anti-Freeze Fallback: When OS hardware cursor is suppressed by SEB or kiosk app,
-                    // render software cursor at latest injected remote coordinates!
-                    int injX = _inputEngine.LastInjectedScreenX;
-                    int injY = _inputEngine.LastInjectedScreenY;
-                    if (injX >= 0 && injY >= 0)
-                    {
-                        curX = (int)((injX - displayLeft) * scaleX);
-                        curY = (int)((injY - displayTop) * scaleY);
-                    }
-                }
-
-                if (curX >= 0 && curY >= 0 && curX < bmp.Width && curY < bmp.Height)
-                {
-                    using var g = Graphics.FromImage(bmp);
-                    bool drawn = false;
-                    if (hCursor != IntPtr.Zero)
-                    {
-                        int drawX = curX;
-                        int drawY = curY;
-                        if (GetIconInfo(hCursor, out ICONINFO ii))
-                        {
-                            drawX -= (int)(ii.xHotspot * scaleX);
-                            drawY -= (int)(ii.yHotspot * scaleY);
-                            if (ii.hbmColor != IntPtr.Zero) DeleteObject(ii.hbmColor);
-                            if (ii.hbmMask != IntPtr.Zero) DeleteObject(ii.hbmMask);
-                        }
-
-                        IntPtr hdc = g.GetHdc();
-                        try
-                        {
-                            drawn = DrawIconEx(hdc, drawX, drawY, hCursor, 0, 0, 0, IntPtr.Zero, DI_NORMAL);
-                        }
-                        finally
-                        {
-                            g.ReleaseHdc(hdc);
-                        }
-                    }
-
-                    if (!drawn)
-                    {
-                        DrawDefaultCursor(g, curX, curY);
-                    }
+                    detectedShape = DetectCursorShape(ci.hCursor);
                 }
             }
             catch { }

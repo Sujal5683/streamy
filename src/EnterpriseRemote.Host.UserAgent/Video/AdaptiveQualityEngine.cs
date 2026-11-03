@@ -80,25 +80,29 @@ public sealed class AdaptiveQualityEngine
 
     /// <summary>
     /// Calculates dynamic JPEG quality based on real-time socket transmission duration to prevent Cloudflare bufferbloat.
+    /// Uses realistic WAN thresholds (100–120ms) so normal Internet / Cloudflare RTT does not artificially crush quality.
     /// </summary>
     public int CalculateDynamicQuality(int targetQualityCeiling, long lastSendDurationMs, int frameIntervalMs)
     {
         if (lastSendDurationMs <= 0) return targetQualityCeiling;
 
-        // If send took longer than the frame interval, the socket is buffering. Drop quality to shrink payload immediately.
-        if (lastSendDurationMs > frameIntervalMs * 1.5f)
+        // Realistic threshold: on WAN/Cloudflare links, normal transit is 25-60ms.
+        // True congestion / bufferbloat starts when transmission time exceeds 100ms or 3x frame interval.
+        int congestionThresholdMs = Math.Max(100, frameIntervalMs * 3);
+
+        if (lastSendDurationMs > congestionThresholdMs)
         {
-            // Heavy network congestion or slow uplink: drop quality down to 25% minimum
-            int penalty = (int)((lastSendDurationMs - frameIntervalMs) / 3);
-            return Math.Max(25, targetQualityCeiling - penalty);
+            // Genuine network queue backup: gently throttle quality down to minimum 35%
+            int penalty = (int)((lastSendDurationMs - congestionThresholdMs) / 4);
+            return Math.Clamp(targetQualityCeiling - penalty, 35, targetQualityCeiling);
         }
-        else if (lastSendDurationMs > frameIntervalMs)
+        else if (lastSendDurationMs > (congestionThresholdMs * 3) / 4)
         {
-            // Mild congestion: throttle back 10-15%
-            return Math.Max(30, targetQualityCeiling - 10);
+            // Approaching queue congestion: minor 5% throttle
+            return Math.Clamp(targetQualityCeiling - 5, 35, targetQualityCeiling);
         }
 
-        // Network is clean, use full ceiling
+        // Network is clean, maintain user's configured quality ceiling
         return targetQualityCeiling;
     }
 }

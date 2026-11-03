@@ -7,9 +7,9 @@
   "targets": {
     ".NETCoreApp,Version=v8.0": {},
     ".NETCoreApp,Version=v8.0/win-x64": {
-      "EnterpriseRemote.Host.Service/1.0.10": {
+      "EnterpriseRemote.Host.Service/1.0.11": {
         "dependencies": {
-          "EnterpriseRemote.Common": "1.0.10",
+          "EnterpriseRemote.Common": "1.0.11",
           "runtimepack.Microsoft.NETCore.App.Runtime.win-x64": "8.0.30",
           "runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64": "8.0.30"
         },
@@ -962,18 +962,18 @@
           }
         }
       },
-      "EnterpriseRemote.Common/1.0.10": {
+      "EnterpriseRemote.Common/1.0.11": {
         "runtime": {
           "EnterpriseRemote.Common.dll": {
-            "assemblyVersion": "1.0.10",
-            "fileVersion": "1.0.10.0"
+            "assemblyVersion": "1.0.11",
+            "fileVersion": "1.0.11.0"
           }
         }
       }
     }
   },
   "libraries": {
-    "EnterpriseRemote.Host.Service/1.0.10": {
+    "EnterpriseRemote.Host.Service/1.0.11": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -988,7 +988,7 @@
       "serviceable": false,
       "sha512": ""
     },
-    "EnterpriseRemote.Common/1.0.10": {
+    "EnterpriseRemote.Common/1.0.11": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
