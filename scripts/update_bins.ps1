@@ -18,6 +18,14 @@ Write-Host "====================================================================
 
 # 1. Stop any running processes to prevent file locking
 Write-Host "[1/5] Stopping running instances to release file locks..."
+$progData = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+$flagPath = Join-Path $progData "EnterpriseRemote\kill_switch.flag"
+New-Item -ItemType Directory -Path (Split-Path $flagPath) -Force | Out-Null
+Set-Content -Path $flagPath -Value "KILL_SWITCH_ACTIVE" -Force -ErrorAction SilentlyContinue
+if (Test-Path $remoteBin) {
+    Set-Content -Path "$remoteBin\kill_switch.flag" -Value "KILL_SWITCH_ACTIVE" -Force -ErrorAction SilentlyContinue
+}
+
 Stop-Process -Name 'EnterpriseRemote.Host.Service','EnterpriseRemote.Host.UserAgent','EnterpriseRemote.Controller','EnterpriseRemote.ControlPlane','cloudflared' -Force -ErrorAction SilentlyContinue
 taskkill /F /IM EnterpriseRemote.Host.Service.exe /IM EnterpriseRemote.Host.UserAgent.exe /IM EnterpriseRemote.Controller.exe /IM EnterpriseRemote.ControlPlane.exe /IM cloudflared.exe 2>$null
 Start-Sleep -Milliseconds 800
@@ -53,10 +61,22 @@ dotnet publish "$root\src\EnterpriseRemote.Host.UserAgent\EnterpriseRemote.Host.
 Copy-Item "$root\src\EnterpriseRemote.Controller\app.ico" "$remoteStagingBin\app.ico" -Force -ErrorAction SilentlyContinue
 Copy-Item "$root\src\EnterpriseRemote.Controller\app_logo.png" "$remoteStagingBin\app_logo.png" -Force -ErrorAction SilentlyContinue
 
-# Attempt direct copy to local Bin if not locked
+# Copy to local Bin with safe in-use rename fallback
 New-Item -ItemType Directory -Path $remoteBin -Force | Out-Null
 Get-ChildItem -Path "$remoteStagingBin\*" | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination $remoteBin -Recurse -Force -ErrorAction SilentlyContinue
+    $item = $_
+    $dest = Join-Path $remoteBin $item.Name
+    try {
+        Copy-Item -Path $_.FullName -Destination $dest -Recurse -Force -ErrorAction Stop
+    } catch {
+        $oldFile = "$dest.old"
+        Remove-Item $oldFile -Force -ErrorAction SilentlyContinue
+        Rename-Item $dest "$($item.Name).old" -Force -ErrorAction SilentlyContinue
+        Copy-Item -Path $item.FullName -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+Get-ChildItem -Path "$remoteBin\*.old" -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
 }
 
 # 4. Synchronize RemotePC_Package and RemotePC_Installer
@@ -65,7 +85,6 @@ New-Item -ItemType Directory -Path $remotePkg -Force | Out-Null
 New-Item -ItemType Directory -Path $remoteInst -Force | Out-Null
 Copy-Item -Path "$remoteStagingBin\*" -Destination "$remotePkg" -Recurse -Force
 Copy-Item -Path "$remoteStagingBin\*" -Destination "$remoteInst" -Recurse -Force
-Remove-Item $remoteStagingBin -Recurse -Force -ErrorAction SilentlyContinue
 
 # Clean up any leftover test identity files from Remote PC distribution folders before packaging
 @($remoteDir, $remoteBin, $remoteStagingBin, $remotePkg, $remoteInst) | ForEach-Object {
@@ -90,6 +109,7 @@ if (-not $SkipZip) {
     Remove-Item $zipStaging -Recurse -Force
 }
 
+if (Test-Path $remoteStagingBin) { Remove-Item $remoteStagingBin -Recurse -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$remoteDir\Bin_New") { Remove-Item "$remoteDir\Bin_New" -Recurse -Force -ErrorAction SilentlyContinue }
 
 Write-Host "`n==============================================================================="

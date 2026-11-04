@@ -294,6 +294,22 @@ public static class Program
             }
         }, cts.Token);
         
+        _ = Task.Run(async () =>
+        {
+            while (!cts.Token.IsCancellationRequested)
+            {
+                if (IsKillSwitchActive())
+                {
+                    Console.WriteLine("[!] Remote Streaming KILL SWITCH detected. Exiting UserAgent cleanly.");
+                    cts.Cancel();
+                    try { Application.Exit(); } catch { }
+                    Environment.Exit(0);
+                    break;
+                }
+                try { await Task.Delay(1000, cts.Token); } catch { break; }
+            }
+        }, cts.Token);
+
         Console.WriteLine("[+] User Agent ready and running in hidden system tray.");
         // Keep running until canceled or test completes
         if (args.Length > 0 && args[0].Equals("--oneshot", StringComparison.OrdinalIgnoreCase))

@@ -902,7 +902,7 @@ class WebControllerApp {
             this.updateProfileButtons(this.dom.profileLan);
         });
         this.dom.profileWan.addEventListener('click', () => {
-            this.applyProfile(40, 50, 720, 'Adaptive WAN (40 FPS, 720p)');
+            this.applyProfile(60, 70, 720, 'Adaptive WAN (60 FPS, 720p)');
             this.updateProfileButtons(this.dom.profileWan);
         });
         this.dom.profileSharp.addEventListener('click', () => {
@@ -1666,7 +1666,7 @@ class WebControllerApp {
                          window.location.hostname.includes('cloudflare') ||
                          this.isTailscaleUrl(window.location.hostname);
         if (isTunnel) {
-            this.applyProfile(60, 75, 720, 'Adaptive WAN Profile (60 FPS, 720p)');
+            this.applyProfile(60, 70, 720, 'Adaptive WAN Profile (60 FPS, 720p)');
             this.updateProfileButtons(this.dom.profileWan);
         } else {
             this.applyProfile(60, 80, 1080, 'High-Speed LAN Profile (60 FPS, 1080p)');

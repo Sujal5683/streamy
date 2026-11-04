@@ -1,5 +1,5 @@
 @echo off
-title Enterprise Remote Access — Remote PC Kill Switch
+title Enterprise Remote Access ? Remote PC Kill Switch
 setlocal enabledelayedexpansion
 
 :: 1. Auto-elevate to Administrator to guarantee full authority over Windows Services and background processes
@@ -13,7 +13,7 @@ if %ERRORLEVEL% neq 0 (
 
 echo.
 echo ===============================================================================
-echo   ENTERPRISE REMOTE ACCESS — REMOTE PC KILL SWITCH ACTIVATING...
+echo   ENTERPRISE REMOTE ACCESS ? REMOTE PC KILL SWITCH ACTIVATING...
 echo ===============================================================================
 echo.
 
@@ -41,7 +41,7 @@ powershell -NoProfile -Command "Get-Process -Name 'EnterpriseRemote.Host.*' -Err
 echo  [OK] All streaming agents and capture engines terminated.
 echo.
 echo ===============================================================================
-echo   [SUCCESS] KILL SWITCH ENGAGED — STREAMING IS FULLY TERMINATED!
+echo   [SUCCESS] KILL SWITCH ENGAGED ? STREAMING IS FULLY TERMINATED!
 echo   No background services or watchdogs can restart until you run START.
 echo ===============================================================================
 echo.

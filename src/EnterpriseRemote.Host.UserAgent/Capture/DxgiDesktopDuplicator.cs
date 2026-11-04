@@ -16,6 +16,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
     private int _height;
     private byte[]? _frameBuffer;
     private readonly IScreenCapturer _fallbackCapturer;
+    private DateTime _lastDxgiAttemptUtc = DateTime.MinValue;
 
     public DisplayInfo Display { get; private set; } = new();
     public bool IsInitialized { get; private set; }
@@ -307,7 +308,19 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
 
         if (IsUsingFallback)
         {
-            return _fallbackCapturer.CaptureFrame(timeoutMilliseconds);
+            if ((DateTime.UtcNow - _lastDxgiAttemptUtc).TotalSeconds >= 2.0)
+            {
+                _lastDxgiAttemptUtc = DateTime.UtcNow;
+                if (TryInitializeDxgi())
+                {
+                    IsUsingFallback = false;
+                }
+            }
+
+            if (IsUsingFallback)
+            {
+                return _fallbackCapturer.CaptureFrame(timeoutMilliseconds);
+            }
         }
 
         var sw = Stopwatch.StartNew();
@@ -327,8 +340,16 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             {
                 // Active desktop switched (e.g. Safe Exam Browser started on dedicated desktop)
                 CleanupDxgiResources();
+                _lastDxgiAttemptUtc = DateTime.UtcNow;
+                DesktopSwitchManager.AttachCallingThreadToInputDesktop(out _);
+                if (TryInitializeDxgi())
+                {
+                    IsUsingFallback = false;
+                    return new CapturedFrame { Status = CaptureStatus.AccessLost };
+                }
+
                 IsUsingFallback = true;
-                if (!_fallbackCapturer.IsInitialized) _fallbackCapturer.Initialize();
+                _fallbackCapturer.RebindToActiveDesktop();
                 return _fallbackCapturer.CaptureFrame(timeoutMilliseconds);
             }
             if (hr != S_OK || pDesktopResource == IntPtr.Zero)
@@ -404,6 +425,18 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             releaseFrame(_dxgiOutputDuplication);
 
             sw.Stop();
+
+            if (!GdiDesktopCapturer.HasNonZeroPixels(frameCopy))
+            {
+                return new CapturedFrame
+                {
+                    Status = CaptureStatus.BlackScreenDetected,
+                    Width = _width,
+                    Height = _height,
+                    Buffer = frameCopy,
+                    ProtectedContentMaskedOut = frameInfo.ProtectedContentMaskedOut
+                };
+            }
 
             return new CapturedFrame
             {

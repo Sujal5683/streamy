@@ -1,5 +1,5 @@
 @echo off
-title Enterprise Remote Access — Zero-Install Web Controller
+title Enterprise Remote Access ? Zero-Install Web Controller
 setlocal
 
 :: Change into the Bin directory where ControlPlane is installed
@@ -7,7 +7,7 @@ cd /d "%~dp0Bin"
 
 echo.
 echo ================================================================================
-echo   ENTERPRISE REMOTE ACCESS — ZERO-INSTALL WEB CONTROLLER
+echo   ENTERPRISE REMOTE ACCESS ? ZERO-INSTALL WEB CONTROLLER
 echo ================================================================================
 echo.
 

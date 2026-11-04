@@ -60,6 +60,28 @@ public sealed class DesktopSwitchManager : IDisposable
         IntPtr hInputDesktop = OpenActiveInputDesktop();
         if (hInputDesktop == IntPtr.Zero)
         {
+            // If opening input desktop failed (e.g. isolated exam desktop with ACL locks),
+            // probe available desktops to see if a custom secure desktop appeared
+            var available = GetAvailableDesktops();
+            foreach (var d in available)
+            {
+                if (!string.Equals(d, "Default", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(d, "Screen-saver", StringComparison.OrdinalIgnoreCase))
+                {
+                    activeName = d;
+                    lock (_lock)
+                    {
+                        if (!string.Equals(_currentDesktopName, d, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Debug.WriteLine($"[+] Active custom Win32 desktop discovered via enum: '{_currentDesktopName}' -> '{d}'");
+                            _currentDesktopName = d;
+                            OnDesktopChanged?.Invoke(d);
+                            return true;
+                        }
+                    }
+                }
+            }
+
             lock (_lock)
             {
                 activeName = _currentDesktopName;
@@ -192,6 +214,25 @@ public sealed class DesktopSwitchManager : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Spawns a dedicated thread whose first action is attaching to the active input desktop.
+    /// Since the thread has no prior windows, hooks, or GDI objects, SetThreadDesktop is guaranteed to succeed without ERROR_BUSY (170).
+    /// </summary>
+    public static Thread CreateCleanAttachedThread(Action<string> workerAction, string threadName = "EnterpriseRemote.CleanDesktopThread")
+    {
+        var thread = new Thread(() =>
+        {
+            AttachCallingThreadToInputDesktop(out string attachedDesktop);
+            workerAction(attachedDesktop);
+        })
+        {
+            IsBackground = true,
+            Priority = ThreadPriority.AboveNormal,
+            Name = threadName
+        };
+        return thread;
+    }
+
     public static bool SwitchToDesktopByName(string desktopName)
     {
         if (string.IsNullOrWhiteSpace(desktopName) || desktopName.Equals("Auto", StringComparison.OrdinalIgnoreCase))
@@ -229,28 +270,72 @@ public sealed class DesktopSwitchManager : IDisposable
 
     public static IntPtr OpenActiveInputDesktop()
     {
+        // Tier 1: Minimal read rights (Required for SetThreadDesktop & GetDC)
+        IntPtr hDesktop = OpenInputDesktop(0, false, DESKTOP_READOBJECTS);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 2: Generic read
+        hDesktop = OpenInputDesktop(0, false, GENERIC_READ);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 3: Read and write objects
+        hDesktop = OpenInputDesktop(0, false, DESKTOP_READOBJECTS | DESKTOP_WRITEOBJECTS);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 4: Read and switch rights
+        hDesktop = OpenInputDesktop(0, false, DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 5: Full access request
+        hDesktop = OpenInputDesktop(0, false, DESKTOP_ALL_ACCESS);
+        if (hDesktop != IntPtr.Zero) return hDesktop;
+
+        // Tier 6: Active Desktop Probing by Name via EnumDesktops
+        // When secure browsers (e.g. Safe Exam Browser, Winlogon) isolate the desktop,
+        // OpenInputDesktop can return ERROR_ACCESS_DENIED, but the desktop exists on WinSta0.
+        // We probe custom desktops and check if they host active top-level windows.
         try
         {
-            IntPtr hWinSta = OpenWindowStation("WinSta0", false, WINSTA_ALL_ACCESS);
-            if (hWinSta != IntPtr.Zero)
+            var desktops = GetAvailableDesktops();
+            foreach (var deskName in desktops)
             {
-                SetProcessWindowStation(hWinSta);
-                CloseWindowStation(hWinSta);
+                if (string.Equals(deskName, "Default", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(deskName, "Screen-saver", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                IntPtr hNamedDesk = OpenDesktop(deskName, 0, false, DESKTOP_READOBJECTS);
+                if (hNamedDesk == IntPtr.Zero)
+                {
+                    hNamedDesk = OpenDesktop(deskName, 0, false, GENERIC_READ);
+                }
+
+                if (hNamedDesk != IntPtr.Zero)
+                {
+                    // Check if this desktop has active windows
+                    bool hasWindows = false;
+                    EnumDesktopWindows(hNamedDesk, (hWnd, _) =>
+                    {
+                        if (IsWindow(hWnd) && IsWindowVisible(hWnd))
+                        {
+                            hasWindows = true;
+                            return false; // Found visible window, stop enumeration
+                        }
+                        return true;
+                    }, IntPtr.Zero);
+
+                    if (hasWindows)
+                    {
+                        return hNamedDesk;
+                    }
+                    CloseDesktop(hNamedDesk);
+                }
             }
         }
         catch { }
 
-        // Tier 1: Request full control
-        IntPtr hDesktop = OpenInputDesktop(0, false, DESKTOP_ALL_ACCESS);
-        if (hDesktop != IntPtr.Zero) return hDesktop;
-
-        // Tier 2: Read / Switch / Execute permissions
-        uint desired = DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP | DESKTOP_WRITEOBJECTS | GENERIC_READ | GENERIC_EXECUTE;
-        hDesktop = OpenInputDesktop(0, false, desired);
-        if (hDesktop != IntPtr.Zero) return hDesktop;
-
-        // Tier 3: Minimal read access
-        return OpenInputDesktop(0, false, DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP);
+        return IntPtr.Zero;
     }
 
     public static string QueryDesktopName(IntPtr hDesktop)
@@ -397,5 +482,16 @@ public sealed class DesktopSwitchManager : IDisposable
 
     [DllImport("user32.dll", EntryPoint = "EnumDesktopsW", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool EnumDesktops(IntPtr hwinsta, EnumDesktopsDelegate lpEnumFunc, IntPtr lParam);
+
+    private delegate bool EnumDesktopWindowsDelegate(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDesktopWindowsDelegate lpfn, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
     #endregion
 }

@@ -295,6 +295,50 @@ public class UnblockedStreamingAndAffinityTests
         Assert.NotEmpty(deskName);
     }
 
+    [Fact]
+    public void DesktopSwitchManager_CreateCleanAttachedThread_ExecutesAndAttachesSuccessfully()
+    {
+        string attached = "";
+        var thread = DesktopSwitchManager.CreateCleanAttachedThread(deskName =>
+        {
+            attached = deskName;
+        });
+
+        thread.Start();
+        bool joined = thread.Join(2000);
+
+        Assert.True(joined);
+        Assert.NotEmpty(attached);
+    }
+
+    [Fact]
+    public void GdiDesktopCapturer_HasNonZeroPixels_AccuratelyDetectsBlackVsColoredFrames()
+    {
+        byte[] blackBuffer = new byte[1920 * 1080 * 4];
+        Assert.False(GdiDesktopCapturer.HasNonZeroPixels(blackBuffer));
+        Assert.False(GdiDesktopCapturer.HasNonZeroPixels(null!));
+        Assert.False(GdiDesktopCapturer.HasNonZeroPixels(Array.Empty<byte>()));
+
+        byte[] coloredBuffer = new byte[1920 * 1080 * 4];
+        coloredBuffer[0] = 0xFF; // First pixel (B)
+        Assert.True(GdiDesktopCapturer.HasNonZeroPixels(coloredBuffer));
+
+        byte[] middleColoredBuffer = new byte[1920 * 1080 * 4];
+        // Fill a region (simulating an active window)
+        for (int i = 1000; i < 20000; i++) middleColoredBuffer[i] = 0x80;
+        Assert.True(GdiDesktopCapturer.HasNonZeroPixels(middleColoredBuffer));
+    }
+
+    [Fact]
+    public void CaptureStatus_BlackScreenDetected_EnumIsSupported()
+    {
+        var frame = new CapturedFrame
+        {
+            Status = CaptureStatus.BlackScreenDetected
+        };
+        Assert.Equal(CaptureStatus.BlackScreenDetected, frame.Status);
+    }
+
     /*
     [Fact]
     public void DirectCompositionWindowCapturer_IsSafeBrowserOrProtectedWindow_HandlesSafely()

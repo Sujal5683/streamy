@@ -20,6 +20,8 @@ public sealed class WindowAffinityManager : IDisposable
     private const uint WDA_NONE = 0x00000000;
     private const uint WDA_MONITOR = 0x00000001;
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    private const uint DESKTOP_READOBJECTS = 0x0001;
+    private const uint DESKTOP_ENUMERATE = 0x0040;
 
     private readonly List<IntPtr> _activeProtectedWindows = new();
     private readonly HashSet<uint> _permanentlyNeutralizedPids = new();
@@ -92,18 +94,24 @@ public sealed class WindowAffinityManager : IDisposable
     }
 
     /// <summary>
-    /// Scans all top-level windows and their child window hierarchies for display affinity masks,
+    /// Scans all top-level windows and their child window hierarchies across ALL Win32 desktops
+    /// (including dedicated exam desktops such as SEBDesktop or SafeExamBrowser) for display affinity masks,
     /// neutralizing them immediately.
     /// </summary>
     public List<IntPtr> ScanAndNeutralize()
     {
         var foundProtected = new List<IntPtr>();
+        var seenHwnds = new HashSet<IntPtr>();
 
-        EnumWindows((hWnd, lParam) =>
+        Action<IntPtr> checkWindow = (hWnd) =>
         {
             if (!IsWindow(hWnd) || !IsWindowVisible(hWnd) || IsIconic(hWnd))
             {
-                return true;
+                return;
+            }
+            if (!seenHwnds.Add(hWnd))
+            {
+                return;
             }
 
             // Inspect top-level window
@@ -115,7 +123,7 @@ public sealed class WindowAffinityManager : IDisposable
             // Inspect nested child windows (e.g. CEF, Chromium, WebView2, and WPF render hosts)
             EnumChildWindows(hWnd, (hChild, childParam) =>
             {
-                if (IsWindow(hChild) && IsWindowVisible(hChild))
+                if (IsWindow(hChild) && IsWindowVisible(hChild) && seenHwnds.Add(hChild))
                 {
                     if (GetWindowDisplayAffinity(hChild, out uint childAffinity) && childAffinity != WDA_NONE)
                     {
@@ -124,9 +132,40 @@ public sealed class WindowAffinityManager : IDisposable
                 }
                 return true;
             }, IntPtr.Zero);
+        };
 
+        // 1. Enumerate calling thread desktop windows
+        EnumWindows((hWnd, lParam) =>
+        {
+            checkWindow(hWnd);
             return true;
         }, IntPtr.Zero);
+
+        // 2. Multi-desktop scanning across all visible desktops on WinSta0 (e.g. SEBDesktop, SafeExamBrowser, Winlogon)
+        try
+        {
+            var desktops = DesktopSwitchManager.GetAvailableDesktops();
+            foreach (var deskName in desktops)
+            {
+                IntPtr hDesk = OpenDesktop(deskName, 0, false, DESKTOP_READOBJECTS | DESKTOP_ENUMERATE);
+                if (hDesk != IntPtr.Zero)
+                {
+                    try
+                    {
+                        EnumDesktopWindows(hDesk, (hWnd, _) =>
+                        {
+                            checkWindow(hWnd);
+                            return true;
+                        }, IntPtr.Zero);
+                    }
+                    finally
+                    {
+                        CloseDesktop(hDesk);
+                    }
+                }
+            }
+        }
+        catch { }
 
         lock (_lock)
         {
@@ -507,6 +546,17 @@ public sealed class WindowAffinityManager : IDisposable
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", EntryPoint = "OpenDesktopW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr OpenDesktop([MarshalAs(UnmanagedType.LPWStr)] string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool CloseDesktop(IntPtr hDesktop);
+
+    private delegate bool EnumDesktopWindowsDelegate(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumDesktopWindowsDelegate lpfn, IntPtr lParam);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);

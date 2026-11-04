@@ -1,5 +1,5 @@
 @echo off
-title Enterprise Remote Access — Main PC Launcher
+title Enterprise Remote Access ? Main PC Launcher
 setlocal
 
 :: Launch both the Control Plane background server and Controller GUI silently

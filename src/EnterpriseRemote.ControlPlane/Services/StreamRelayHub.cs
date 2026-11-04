@@ -236,31 +236,28 @@ public static class StreamRelayHub
                                 if (isCursor)
                                 {
                                     viewer.PendingCursorPacket = rawMsg;
-                                    if (viewer.SendLock.CurrentCount > 0)
+                                    _ = Task.Run(async () =>
                                     {
-                                        _ = Task.Run(async () =>
+                                        try
                                         {
-                                            try
+                                            if (await viewer.SendLock.WaitAsync(25, viewer.Cts.Token))
                                             {
-                                                if (await viewer.SendLock.WaitAsync(5, viewer.Cts.Token))
+                                                try
                                                 {
-                                                    try
+                                                    byte[]? toSend = Interlocked.Exchange(ref viewer.PendingCursorPacket, null);
+                                                    if (toSend != null && viewer.Socket.State == WebSocketState.Open)
                                                     {
-                                                        byte[]? toSend = Interlocked.Exchange(ref viewer.PendingCursorPacket, null);
-                                                        if (toSend != null && viewer.Socket.State == WebSocketState.Open)
-                                                        {
-                                                            await viewer.Socket.SendAsync(new ArraySegment<byte>(toSend), WebSocketMessageType.Binary, true, viewer.Cts.Token);
-                                                        }
-                                                    }
-                                                    finally
-                                                    {
-                                                        viewer.SendLock.Release();
+                                                        await viewer.Socket.SendAsync(new ArraySegment<byte>(toSend), WebSocketMessageType.Binary, true, viewer.Cts.Token);
                                                     }
                                                 }
+                                                finally
+                                                {
+                                                    viewer.SendLock.Release();
+                                                }
                                             }
-                                            catch { }
-                                        });
-                                    }
+                                        }
+                                        catch { }
+                                    });
                                 }
                                 else
                                 {
@@ -378,16 +375,7 @@ public static class StreamRelayHub
                     break;
                 }
 
-                // Single-in-flight WAN pacing: if previous frame is still buffering/in-flight over WAN, wait for ACK or max 500ms safety timeout
-                if (viewerCtx.IsViewerFrameInFlight)
-                {
-                    try
-                    {
-                        await viewerCtx.AckSignal.WaitAsync(500, ct);
-                    }
-                    catch (OperationCanceledException) { break; }
-                    viewerCtx.IsViewerFrameInFlight = false;
-                }
+
 
                 // Drain to get the latest frame if multiple arrived, ensuring zero latency
                 byte[]? frameToSend = null;
@@ -403,7 +391,6 @@ public static class StreamRelayHub
                     {
                         if (viewerWs.State == WebSocketState.Open)
                         {
-                            viewerCtx.IsViewerFrameInFlight = true;
                             await viewerWs.SendAsync(new ArraySegment<byte>(frameToSend), WebSocketMessageType.Binary, true, ct);
                         }
 

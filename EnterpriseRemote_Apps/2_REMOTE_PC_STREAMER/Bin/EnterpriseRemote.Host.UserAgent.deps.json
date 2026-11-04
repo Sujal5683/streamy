@@ -7,9 +7,9 @@
   "targets": {
     ".NETCoreApp,Version=v8.0": {},
     ".NETCoreApp,Version=v8.0/win-x64": {
-      "EnterpriseRemote.Host.UserAgent/1.0.11": {
+      "EnterpriseRemote.Host.UserAgent/1.0.13": {
         "dependencies": {
-          "EnterpriseRemote.Common": "1.0.11",
+          "EnterpriseRemote.Common": "1.0.13",
           "FontAwesome.Sharp": "6.6.0",
           "runtimepack.Microsoft.NETCore.App.Runtime.win-x64": "8.0.30",
           "runtimepack.Microsoft.WindowsDesktop.App.Runtime.win-x64": "8.0.30"
@@ -971,18 +971,18 @@
           }
         }
       },
-      "EnterpriseRemote.Common/1.0.11": {
+      "EnterpriseRemote.Common/1.0.13": {
         "runtime": {
           "EnterpriseRemote.Common.dll": {
-            "assemblyVersion": "1.0.11",
-            "fileVersion": "1.0.11.0"
+            "assemblyVersion": "1.0.13",
+            "fileVersion": "1.0.13.0"
           }
         }
       }
     }
   },
   "libraries": {
-    "EnterpriseRemote.Host.UserAgent/1.0.11": {
+    "EnterpriseRemote.Host.UserAgent/1.0.13": {
       "type": "project",
       "serviceable": false,
       "sha512": ""
@@ -1004,7 +1004,7 @@
       "path": "fontawesome.sharp/6.6.0",
       "hashPath": "fontawesome.sharp.6.6.0.nupkg.sha512"
     },
-    "EnterpriseRemote.Common/1.0.11": {
+    "EnterpriseRemote.Common/1.0.13": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

@@ -62,12 +62,16 @@ public sealed class DesktopStreamingService : IDisposable
     private RemoteCursorShape _lastSentCursorShape = RemoteCursorShape.Default;
     private bool _lastSentCursorVisible = true;
 
-    // Single-Flight Zero-Bufferbloat Transmission Gate & ACK Pacer
+    // Pipelined Sliding Window (MaxInFlight = 2) & Rate Pacer
     private readonly SemaphoreSlim _immediateFrameSignal = new(0, 1);
-    private volatile bool _awaitingFrameAck = false;
+    private readonly SemaphoreSlim _ackSignal = new(0, 1);
+    private long _sentSequence = 0;
+    private long _lastAckedSequence = 0;
+    private const int MaxInFlight = 2;
     private long _lastFrameSentTicks = 0;
     private long _lastSendDurationMs = 0;
     private double _measuredRttMs = 50.0;
+    private volatile bool _requestCaptureThreadRestart = false;
 
     public Action<string>? RequestElevatedDesktopSwitch { get; set; }
     public Action? RequestDesktopAccess { get; set; }
@@ -97,7 +101,12 @@ public sealed class DesktopStreamingService : IDisposable
             _affinityManager.ScanAndNeutralize();
             _fallbackGdiCapturer.RebindToActiveDesktop();
             try { _capturer.Initialize(); } catch { }
-            _awaitingFrameAck = false;
+            Interlocked.Exchange(ref _lastAckedSequence, Interlocked.Read(ref _sentSequence));
+            if (_ackSignal.CurrentCount == 0)
+            {
+                try { _ackSignal.Release(); } catch { }
+            }
+            _requestCaptureThreadRestart = true;
             TriggerImmediateFrame();
         };
 
@@ -115,12 +124,12 @@ public sealed class DesktopStreamingService : IDisposable
 
     public void Start()
     {
-        // 1. Dedicated high-priority native capture thread permanently attached to active input desktop
-        _cleanCaptureThread = new Thread(CleanCaptureThreadWorker)
+        // 1. Dedicated high-priority capture supervisor managing clean threads attached to the active input desktop
+        _cleanCaptureThread = new Thread(CleanCaptureSupervisorWorker)
         {
             IsBackground = true,
             Priority = ThreadPriority.AboveNormal,
-            Name = "EnterpriseRemote.CleanCaptureThread"
+            Name = "EnterpriseRemote.CleanCaptureSupervisor"
         };
         _cleanCaptureThread.Start();
 
@@ -128,28 +137,62 @@ public sealed class DesktopStreamingService : IDisposable
         _streamingTask = Task.Run(() => ConnectionManagerLoopAsync(_cts.Token));
     }
 
-    private void CleanCaptureThreadWorker()
+    private void CleanCaptureSupervisorWorker()
     {
-        DesktopSwitchManager.AttachCallingThreadToInputDesktop(out _);
-
         while (!_cts.IsCancellationRequested)
+        {
+            _requestCaptureThreadRestart = false;
+
+            // Spawns a dedicated pristine thread whose first action is SetThreadDesktop on the active input desktop.
+            // Guaranteed to succeed with zero ERROR_BUSY (170) because the thread owns no windows, hooks, or GDI handles.
+            var workerThread = DesktopSwitchManager.CreateCleanAttachedThread(desktopName =>
+            {
+                RunCleanCaptureWorker(desktopName);
+            }, "EnterpriseRemote.CleanCaptureWorker");
+
+            workerThread.Start();
+
+            // Supervise the worker thread. If desktop switch or persistent black screen is detected,
+            // worker sets _requestCaptureThreadRestart or exits.
+            while (workerThread.IsAlive && !_cts.IsCancellationRequested && !_requestCaptureThreadRestart)
+            {
+                Thread.Sleep(30);
+            }
+
+            if (_requestCaptureThreadRestart && workerThread.IsAlive)
+            {
+                workerThread.Join(150);
+            }
+        }
+    }
+
+    private void RunCleanCaptureWorker(string initialDesktop)
+    {
+        int consecutiveBlackFrames = 0;
+        bool isCustomDesktop = !string.Equals(initialDesktop, "Default", StringComparison.OrdinalIgnoreCase);
+
+        if (isCustomDesktop)
+        {
+            _fallbackGdiCapturer.RebindToActiveDesktop();
+        }
+        else
+        {
+            try { _capturer.Initialize(); } catch { }
+        }
+
+        while (!_cts.IsCancellationRequested && !_requestCaptureThreadRestart)
         {
             try
             {
                 // 1. Periodic desktop check & sync
                 if (_desktopSwitchManager.CheckAndSyncDesktop(out string curDesktop))
                 {
-                    _fallbackGdiCapturer.RebindToActiveDesktop();
-                    if (string.Equals(curDesktop, "Default", StringComparison.OrdinalIgnoreCase))
-                    {
-                        try { _capturer.Initialize(); } catch { }
-                    }
-                    _affinityManager.ScanAndNeutralize();
+                    _requestCaptureThreadRestart = true;
+                    break;
                 }
 
-                // 2. Decide capturer based on active desktop
-                string currentDesktop = _desktopSwitchManager.CurrentDesktopName ?? "Default";
-                bool isCustomDesktop = !string.Equals(currentDesktop, "Default", StringComparison.OrdinalIgnoreCase);
+                string currentDesktop = _desktopSwitchManager.CurrentDesktopName ?? initialDesktop;
+                isCustomDesktop = !string.Equals(currentDesktop, "Default", StringComparison.OrdinalIgnoreCase);
 
                 CapturedFrame frame;
                 if (isCustomDesktop)
@@ -161,7 +204,13 @@ public sealed class DesktopStreamingService : IDisposable
                 {
                     int captureTimeout = Math.Clamp(1000 / (_targetFps * 2), 2, 10);
                     frame = _capturer.CaptureFrame(timeoutMilliseconds: captureTimeout);
-                    if (frame.Status != CaptureStatus.Success)
+                    if (frame.Status == CaptureStatus.Timeout)
+                    {
+                        // Desktop is static; no dirty rects in DXGI. Do not fallback to GDI or force a new identical frame.
+                        Thread.Sleep(Math.Max(1, 1000 / _targetFps));
+                        continue;
+                    }
+                    else if (frame.Status != CaptureStatus.Success)
                     {
                         if (!_fallbackGdiCapturer.IsInitialized) _fallbackGdiCapturer.Initialize();
                         var fallbackFrame = _fallbackGdiCapturer.CaptureFrame(timeoutMilliseconds: 15);
@@ -170,6 +219,60 @@ public sealed class DesktopStreamingService : IDisposable
                             frame = fallbackFrame;
                         }
                     }
+                }
+
+                // 2. Validate black screen / zero-byte frame
+                bool isBlack = (frame.Status == CaptureStatus.BlackScreenDetected) ||
+                               (frame.Status == CaptureStatus.Success && frame.Buffer != null && !GdiDesktopCapturer.HasNonZeroPixels(frame.Buffer));
+
+                if (isBlack)
+                {
+                    consecutiveBlackFrames++;
+                    if (consecutiveBlackFrames >= 2)
+                    {
+                        _affinityManager.ScanAndNeutralize();
+                        if (_desktopSwitchManager.CheckAndSyncDesktop(out _))
+                        {
+                            _requestCaptureThreadRestart = true;
+                            break;
+                        }
+
+                        // Try direct window composition for any detected protected windows
+                        var protectedWindows = _affinityManager.ActiveProtectedWindows;
+                        if (protectedWindows.Count > 0 && frame.Buffer != null && frame.Width > 0 && frame.Height > 0)
+                        {
+                            bool anyComposited = false;
+                            for (int i = 0; i < protectedWindows.Count; i++)
+                            {
+                                try
+                                {
+                                    if (_dcCapturer.CompositeWindowOntoFrame(frame.Buffer, frame.Width, frame.Height, protectedWindows[i]))
+                                    {
+                                        anyComposited = true;
+                                    }
+                                }
+                                catch { }
+                            }
+
+                            if (anyComposited && GdiDesktopCapturer.HasNonZeroPixels(frame.Buffer))
+                            {
+                                consecutiveBlackFrames = 0;
+                                frame.Status = CaptureStatus.Success;
+                            }
+                        }
+
+                        if (consecutiveBlackFrames >= 4)
+                        {
+                            // Persistent black frames: rebind and restart clean thread attached to current input desktop
+                            _fallbackGdiCapturer.RebindToActiveDesktop();
+                            _requestCaptureThreadRestart = true;
+                            break;
+                        }
+                    }
+                }
+                else if (frame.Status == CaptureStatus.Success && frame.Buffer != null)
+                {
+                    consecutiveBlackFrames = 0;
                 }
 
                 // 3. Resilient re-attachment if capture failed
@@ -182,14 +285,15 @@ public sealed class DesktopStreamingService : IDisposable
                     }
                     _fallbackGdiCapturer.RebindToActiveDesktop();
                     var retryFrame = _fallbackGdiCapturer.CaptureFrame(timeoutMilliseconds: 15);
-                    if (retryFrame.Status == CaptureStatus.Success && retryFrame.Buffer != null)
+                    if (retryFrame.Status == CaptureStatus.Success && retryFrame.Buffer != null && GdiDesktopCapturer.HasNonZeroPixels(retryFrame.Buffer))
                     {
                         frame = retryFrame;
+                        consecutiveBlackFrames = 0;
                     }
                 }
 
-                // 4. Process and hand off successful frames
-                if (frame.Status == CaptureStatus.Success && frame.Buffer != null && frame.Width > 0 && frame.Height > 0)
+                // 4. Process and hand off successful non-black frames
+                if (frame.Status == CaptureStatus.Success && frame.Buffer != null && frame.Width > 0 && frame.Height > 0 && GdiDesktopCapturer.HasNonZeroPixels(frame.Buffer))
                 {
                     // Composite protected windows discovered by WindowAffinityManager
                     var protectedWindows = _affinityManager.ActiveProtectedWindows;
@@ -293,7 +397,8 @@ public sealed class DesktopStreamingService : IDisposable
                 Console.WriteLine($"[*] Connecting real-time screen stream to Control Plane: {wsUri}...");
                 await ws.ConnectAsync(wsUri, ct);
                 Console.WriteLine($"[+] Live screen streaming WebSocket connected! Streaming active desktop display at {_targetFps} FPS (Quality: {_jpegQuality}%)...");
-                _awaitingFrameAck = false;
+                Interlocked.Exchange(ref _sentSequence, 0);
+                Interlocked.Exchange(ref _lastAckedSequence, 0);
                 _measuredRttMs = 50.0;
                 try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "streamer_status.log"), $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] STREAMING_ACTIVE to {wsUri} at {_targetFps} FPS (Quality: {_jpegQuality}%)\n"); } catch { }
 
@@ -381,26 +486,25 @@ public sealed class DesktopStreamingService : IDisposable
                 }
             }
 
-            // 3. End-to-End Single-Flight ACK Gate: Dynamic RTT-aware pacing prevents TCP queue accumulation over WAN/Tailscale/Cloudflare
-            if (_awaitingFrameAck)
+            // Periodic heartbeat on static screen (1 Hz) to guarantee continuous viewer synchronization
+            if (!isNewFrame && lastJpeg != null && (DateTime.UtcNow - lastSentTime).TotalMilliseconds >= 1000)
             {
-                double elapsedSinceSendMs = (Stopwatch.GetTimestamp() - _lastFrameSentTicks) * 1000.0 / Stopwatch.Frequency;
-                int dynamicTimeoutMs = Math.Clamp((int)(_measuredRttMs * 1.8), 120, 1000);
-                if (elapsedSinceSendMs < dynamicTimeoutMs)
+                lock (_frameLock)
                 {
-                    int waitRemaining = Math.Max(1, (int)(dynamicTimeoutMs - elapsedSinceSendMs));
-                    try
+                    if (_latestFrame != null)
                     {
-                        await _immediateFrameSignal.WaitAsync(waitRemaining, ct);
+                        frameToEncode = _latestFrame;
+                        isNewFrame = true;
                     }
-                    catch (OperationCanceledException) { break; }
-                    continue;
                 }
-                else
-                {
-                    // Safety timeout reached: reset gate so stream never stalls if an ACK was dropped
-                    _awaitingFrameAck = false;
-                }
+            }
+
+            // Flow Control: Strictly pace frame delivery to targetFps (20-120 FPS).
+            // Zero-latency in-place drop: if socket is busy sending the previous frame, skip and encode the freshest frame next tick.
+            if (Program.IsKillSwitchActive())
+            {
+                Console.WriteLine("[!] Remote Streaming KILL SWITCH detected in streamer. Exiting cleanly.");
+                Environment.Exit(0);
             }
 
             try
@@ -420,8 +524,8 @@ public sealed class DesktopStreamingService : IDisposable
                     int dispLeft = activeDisplay.Width > 0 ? activeDisplay.Left : 0;
                     int dispTop = activeDisplay.Height > 0 ? activeDisplay.Top : 0;
 
-                    // 100% Respect user's configured quality and resolution settings (Zero erratic blurring)
-                    int effectiveQuality = _jpegQuality;
+                    // Strictly honor user-selected quality without erratic blur-unblur oscillations
+                    int effectiveQuality = Math.Clamp(_jpegQuality, 30, 95);
                     int effectiveHeight = _maxHeight;
 
                     // CPU JPEG encoding executes OUTSIDE sendLock so cursor updates and inputs are never blocked
@@ -429,7 +533,8 @@ public sealed class DesktopStreamingService : IDisposable
 
                     if (jpeg.Length > 0 && ws.State == WebSocketState.Open)
                     {
-                        bool lockAcquired = await sendLock.WaitAsync(50, ct);
+                        // In-place drop: if socket is currently transmitting, don't stall the thread or backlog frames
+                        bool lockAcquired = await sendLock.WaitAsync(5, ct);
                         if (lockAcquired)
                         {
                             try
@@ -451,8 +556,8 @@ public sealed class DesktopStreamingService : IDisposable
                                     sendSw.Stop();
                                     _lastSendDurationMs = sendSw.ElapsedMilliseconds;
 
-                                    // Arm single-flight ACK gate
-                                    _awaitingFrameAck = true;
+                                    // Advance sent sequence in sliding window budget
+                                    Interlocked.Increment(ref _sentSequence);
                                     _lastFrameSentTicks = Stopwatch.GetTimestamp();
                                 }
                             }
@@ -567,7 +672,24 @@ public sealed class DesktopStreamingService : IDisposable
                     {
                         _measuredRttMs = (_measuredRttMs <= 0) ? elapsedAckMs : (_measuredRttMs * 0.75 + elapsedAckMs * 0.25);
                     }
-                    _awaitingFrameAck = false;
+
+                    if (remaining.Length >= 5)
+                    {
+                        uint ackSeq = BitConverter.ToUInt32(remaining.Slice(1, 4));
+                        if (ackSeq > Interlocked.Read(ref _lastAckedSequence))
+                        {
+                            Interlocked.Exchange(ref _lastAckedSequence, ackSeq);
+                        }
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref _lastAckedSequence);
+                    }
+
+                    if (_ackSignal.CurrentCount == 0)
+                    {
+                        try { _ackSignal.Release(); } catch { }
+                    }
                     TriggerImmediateFrame();
                     offset += remaining.Length >= 5 ? 5 : 2;
                 }
@@ -1034,6 +1156,7 @@ public sealed class DesktopStreamingService : IDisposable
         _dcCapturer.Dispose();
         _fallbackGdiCapturer.Dispose();
         _immediateFrameSignal.Dispose();
+        _ackSignal.Dispose();
         _cts.Dispose();
     }
 }

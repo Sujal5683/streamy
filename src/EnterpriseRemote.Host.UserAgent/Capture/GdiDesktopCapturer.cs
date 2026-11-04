@@ -157,6 +157,23 @@ public sealed class GdiDesktopCapturer : IScreenCapturer
             // Copy DIBSection bits to managed buffer
             Marshal.Copy(_pBits, _buffer!, 0, _buffer!.Length);
 
+            // Black-screen detection: check if BitBlt copied an inactive background desktop
+            if (!HasNonZeroPixels(_buffer!))
+            {
+                if (RebindToActiveDesktop())
+                {
+                    if (BitBlt(_hMemoryDc, 0, 0, _width, _height, _hDesktopDc, _left, _top, SRCCOPY | CAPTUREBLT))
+                    {
+                        Marshal.Copy(_pBits, _buffer!, 0, _buffer!.Length);
+                    }
+                }
+
+                if (!HasNonZeroPixels(_buffer!))
+                {
+                    return new CapturedFrame { Status = CaptureStatus.BlackScreenDetected };
+                }
+            }
+
             // Capture cursor position
             var cursorInfo = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
             var pointer = new PointerInfo { Visible = false };
@@ -217,6 +234,18 @@ public sealed class GdiDesktopCapturer : IScreenCapturer
         }
 
         IsInitialized = false;
+    }
+
+    public static bool HasNonZeroPixels(byte[] buffer)
+    {
+        if (buffer == null || buffer.Length == 0) return false;
+        int step = Math.Max(4, buffer.Length / 512);
+        for (int i = 0; i < buffer.Length - 3; i += step)
+        {
+            if (buffer[i] != 0 || buffer[i + 1] != 0 || buffer[i + 2] != 0)
+                return true;
+        }
+        return false;
     }
 
     public void Dispose()

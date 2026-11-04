@@ -63,7 +63,8 @@ public enum CaptureStatus
     DisplayChanged,
     DeviceReset,
     NotInitialized,
-    Error
+    Error,
+    BlackScreenDetected
 }
 
 public sealed class CapturedFrame : IDisposable

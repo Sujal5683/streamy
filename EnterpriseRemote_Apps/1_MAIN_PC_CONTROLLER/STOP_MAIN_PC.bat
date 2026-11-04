@@ -1,5 +1,5 @@
 @echo off
-title Enterprise Remote Access — Stop Main PC Processes
+title Enterprise Remote Access ? Stop Main PC Processes
 setlocal enabledelayedexpansion
 
 echo.

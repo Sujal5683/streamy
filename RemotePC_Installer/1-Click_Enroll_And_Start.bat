@@ -1,5 +1,5 @@
 @echo off
-title Enterprise Remote Access — 1-Click Enrollment Wizard
+title Enterprise Remote Access ? 1-Click Enrollment Wizard
 :: Ensure Administrator permissions for service registration and UIPI bypass
 net session >nul 2>&1
 if %ERRORLEVEL% neq 0 (
@@ -20,7 +20,7 @@ echo.
 echo   Perform this step ONCE on the Remote PC to pair it with
 echo   your Main PC (operator/controller).
 echo.
-echo   BEFORE YOU CONTINUE — ensure the following:
+echo   BEFORE YOU CONTINUE ? ensure the following:
 echo     1. The Main PC is running START_MAIN_PC.vbs (or .bat)
 echo     2. Both PCs are on the same Wi-Fi, LAN, or using Cloudflare Tunnel/Tailscale
 echo     3. You have the Main PC Gateway URL or IP
@@ -28,7 +28,7 @@ echo.
 echo  ================================================================
 echo.
 
-:: ── Step 1: Main PC IP or Gateway URL ────────────────────────────────────────
+:: ?? Step 1: Main PC IP or Gateway URL ????????????????????????????????????????
 set /p MAIN_IP="Enter your Main PC Gateway URL or IP (e.g. 10.10.79.117, 192.168.1.5, or trycloudflare URL) [default: 127.0.0.1]: "
 if "%MAIN_IP%"=="" set MAIN_IP=127.0.0.1
 
@@ -40,7 +40,7 @@ echo.
 echo  Target Control Plane: %SERVER_URL%
 echo.
 
-:: ── Step 2: Invitation Code, PIN, or Passkey ─────────────────────────────────
+:: ?? Step 2: Invitation Code, PIN, or Passkey ?????????????????????????????????
 set /p INVITATION_CODE="Enter Invitation Code, 4-Digit Quick PIN (1234), or Permanent Master Key [default: 1234]: "
 if "%INVITATION_CODE%"=="" set INVITATION_CODE=1234
 
