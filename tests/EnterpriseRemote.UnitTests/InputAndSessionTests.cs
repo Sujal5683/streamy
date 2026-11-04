@@ -215,6 +215,8 @@ public class InputAndSessionTests
         sink.InjectMouse(500, 500, MouseButton.None, InputEventType.MouseMove, 0);
         sink.InjectMouse(500, 500, MouseButton.Left, InputEventType.MouseButtonDown, 0);
         sink.InjectMouse(500, 500, MouseButton.Left, InputEventType.MouseButtonUp, 0);
+        sink.InjectKeyboard(0x41, 0x1E, true, 65);
+        sink.InjectKeyboard(0x41, 0x1E, false, 65);
     }
 
     [Fact]
@@ -379,5 +381,84 @@ public class InputAndSessionTests
         Assert.Equal(original.DisplayHeight, deserialized.DisplayHeight);
         Assert.Equal(original.Shape, deserialized.Shape);
         Assert.Equal(original.Visible, deserialized.Visible);
+    }
+
+    [Fact]
+    public void DataChannelProtocol_FrameAck_RoundTripSerialization()
+    {
+        uint expectedSeq = 42891;
+        byte[] serialized = DataChannelProtocol.SerializeFrameAck(expectedSeq);
+        Assert.NotNull(serialized);
+        Assert.Equal(5, serialized.Length);
+        Assert.Equal((byte)InputEventType.FrameAck, serialized[0]);
+
+        bool success = DataChannelProtocol.TryDeserializeFrameAck(serialized, out uint deserializedSeq);
+        Assert.True(success);
+        Assert.Equal(expectedSeq, deserializedSeq);
+
+        // Also test 2-byte compact ACK fallback
+        byte[] compact = new byte[] { (byte)InputEventType.FrameAck, 1 };
+        bool compactSuccess = DataChannelProtocol.TryDeserializeFrameAck(compact, out uint compactSeq);
+        Assert.True(compactSuccess);
+        Assert.Equal(0u, compactSeq);
+    }
+
+    [Fact]
+    public void DataChannelProtocol_SwitchDesktop_RoundTripSerialization()
+    {
+        var original = new SwitchDesktopPacket(
+            DisplayIndex: 2,
+            AutoFollow: false,
+            DesktopName: "SafeExamBrowser",
+            TimestampMillis: 1771483000500UL);
+
+        byte[] serialized = DataChannelProtocol.SerializeSwitchDesktop(in original);
+        Assert.NotNull(serialized);
+        Assert.True(serialized.Length > 13);
+        Assert.Equal((byte)InputEventType.SwitchDesktop, serialized[0]);
+
+        bool success = DataChannelProtocol.TryDeserializeSwitchDesktop(serialized, out var deserialized);
+        Assert.True(success);
+        Assert.Equal(original.DisplayIndex, deserialized.DisplayIndex);
+        Assert.Equal(original.AutoFollow, deserialized.AutoFollow);
+        Assert.Equal(original.DesktopName, deserialized.DesktopName);
+        Assert.Equal(original.TimestampMillis, deserialized.TimestampMillis);
+    }
+
+    [Fact]
+    public void IpcProtocol_ElevatedDesktopSwitchAndDacl_FrameSerialization()
+    {
+        byte[] desktopPayload = System.Text.Encoding.UTF8.GetBytes("Winlogon");
+        var frame = new IpcFrame
+        {
+            MessageType = IpcMessageType.SwitchDesktopElevated,
+            SequenceNumber = 101,
+            Payload = desktopPayload
+        };
+
+        byte[] raw = frame.Serialize();
+        Assert.NotNull(raw);
+        Assert.True(raw.Length >= 16 + 32);
+
+        bool success = IpcFrame.TryDeserialize(raw, out var deserialized);
+        Assert.True(success);
+        Assert.NotNull(deserialized);
+        Assert.Equal(IpcMessageType.SwitchDesktopElevated, deserialized.MessageType);
+        Assert.Equal(101u, deserialized.SequenceNumber);
+        Assert.Equal("Winlogon", System.Text.Encoding.UTF8.GetString(deserialized.Payload));
+
+        var daclFrame = new IpcFrame
+        {
+            MessageType = IpcMessageType.GrantDesktopAccess,
+            SequenceNumber = 102,
+            Payload = Array.Empty<byte>()
+        };
+
+        byte[] daclRaw = daclFrame.Serialize();
+        bool daclSuccess = IpcFrame.TryDeserialize(daclRaw, out var deserializedDacl);
+        Assert.True(daclSuccess);
+        Assert.NotNull(deserializedDacl);
+        Assert.Equal(IpcMessageType.GrantDesktopAccess, deserializedDacl.MessageType);
+        Assert.Equal(102u, deserializedDacl.SequenceNumber);
     }
 }

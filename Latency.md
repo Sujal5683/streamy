@@ -161,3 +161,35 @@ When streaming over remote Wi-Fi, 4G/5G mobile hotspots, or the public internet,
      - RTT 50-100ms: 45 FPS / Balanced profile
      - RTT 100-200ms: 30 FPS / Balanced profile (Q55)
      - RTT > 200ms or loss: 15 FPS / ConstrainedBandwidth profile (Q40)
+
+
+---
+
+## 5. Root-Level WAN Ultra-Low Latency & High Visual Quality (Cloudflare / Tailscale)
+
+### Root-Cause of 15s–30s WAN Delay
+On wide area networks (Tailscale or Cloudflare), physical round-trip time is 50ms–150ms. When previous implementations used a fixed 50ms ACK timeout, the streamer would assume the packet was acknowledged after 50ms and inject another full frame into the TCP socket. The resulting accumulation of frames in Kestrel, Cloudflare tunnel buffers, and client TCP sockets created a 15–30 second queue backlog.
+
+### Architectural Solutions Deployed
+
+1. **Dynamic RTT-Aware Single-Flight Pacing (DesktopStreamingService.cs):**
+   - Streamer measures exact round-trip time upon receiving 0x42 FrameAck.
+   - Dynamic timeout: dynamicTimeoutMs = Math.Clamp((int)(_measuredRttMs * 1.8), 120, 1000);
+   - Never sends more than one unacknowledged frame across the network pipe, eliminating TCP socket bufferbloat.
+   - Immediate frame trigger on desktop switch (UAC elevation / Winlogon) unlocks the pacing gate instantly.
+
+2. **Relay Socket Delivery Pacing (StreamRelayHub.cs):**
+   - Added IsViewerFrameInFlight and AckSignal to each ViewerContext.
+   - When flushing frames over WAN to remote web/desktop viewers, the delivery loop waits for the client FrameAck before dispatching the next frame.
+   - Bounded channels automatically drop intermediate frames, ensuring that whenever a frame is sent, it is the absolute newest snapshot with 0ms queuing delay.
+
+3. **High-Fidelity 2x2 Box Bilinear Downscaler (PixelConverter.cs):**
+   - Replaced point sampling with 2x2 box area averaging across Blue, Green, Red, and Alpha channels:
+     dst[dstIdx + c] = (byte)((src[idx00 + c] + src[idx10 + c] + src[idx01 + c] + src[idx11 + c] + 2) >> 2);
+   - Eliminates text glyph breakage, jagged diagonal lines, and blurry rendering at 720p and 540p.
+   - Raised default JPEG quality baseline to 75%.
+
+4. **Stream Configuration Enforcement & Persistence (stream.js & app.js):**
+   - In this.ws.onopen, the client immediately transmits its active stream parameters (targetFps, quality, maxHeight).
+   - Preferences are stored in browser localStorage under 'ER_STREAM_CONFIG', so user resolution and quality choices (Native, 1080p, 720p, 540p) are 100% honored across page reloads and re-connections.
+   - Included broad Safari / WebKit compatibility fallback for createImageBitmap(blob).

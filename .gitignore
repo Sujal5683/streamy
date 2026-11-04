@@ -88,3 +88,7 @@ RemotePC_Package/ru/
 RemotePC_Package/tr/
 RemotePC_Package/zh-Hans/
 RemotePC_Package/zh-Hant/
+
+# Staging and flag files
+*Bin_Staging/
+*.flag

@@ -37,7 +37,7 @@ public sealed class DesktopStreamingService : IDisposable
     // Dynamic Stream Configuration (Controllable in real-time from Viewer)
     // Supports 10 to 200 FPS; default 120 FPS for ultra-low latency WAN/LAN
     private volatile int _targetFps = 120;
-    private volatile int _jpegQuality = 55;
+    private volatile int _jpegQuality = 75;
     private volatile int _maxHeight = 720;
     private volatile bool _lowLatencyMode = true;
     private volatile RemoteCursorShape _lastReportedCursorShape = RemoteCursorShape.Default;
@@ -62,10 +62,15 @@ public sealed class DesktopStreamingService : IDisposable
     private RemoteCursorShape _lastSentCursorShape = RemoteCursorShape.Default;
     private bool _lastSentCursorVisible = true;
 
-    // Single-Flight Zero-Bufferbloat Transmission Gate
-    private readonly SemaphoreSlim _networkSendGate = new(1, 1);
+    // Single-Flight Zero-Bufferbloat Transmission Gate & ACK Pacer
     private readonly SemaphoreSlim _immediateFrameSignal = new(0, 1);
+    private volatile bool _awaitingFrameAck = false;
+    private long _lastFrameSentTicks = 0;
     private long _lastSendDurationMs = 0;
+    private double _measuredRttMs = 50.0;
+
+    public Action<string>? RequestElevatedDesktopSwitch { get; set; }
+    public Action? RequestDesktopAccess { get; set; }
 
     public DesktopStreamingService(
         string serverUrl,
@@ -92,6 +97,8 @@ public sealed class DesktopStreamingService : IDisposable
             _affinityManager.ScanAndNeutralize();
             _fallbackGdiCapturer.RebindToActiveDesktop();
             try { _capturer.Initialize(); } catch { }
+            _awaitingFrameAck = false;
+            TriggerImmediateFrame();
         };
 
         // Wire immediate frame capture trigger on any typed key or mouse click
@@ -165,7 +172,23 @@ public sealed class DesktopStreamingService : IDisposable
                     }
                 }
 
-                // 3. Process and hand off successful frames
+                // 3. Resilient re-attachment if capture failed
+                if (frame.Status != CaptureStatus.Success || frame.Buffer == null)
+                {
+                    bool attached = DesktopSwitchManager.AttachCallingThreadToInputDesktop(out string newDesktop);
+                    if (!attached && newDesktop == "ProtectedSecureDesktop")
+                    {
+                        RequestDesktopAccess?.Invoke();
+                    }
+                    _fallbackGdiCapturer.RebindToActiveDesktop();
+                    var retryFrame = _fallbackGdiCapturer.CaptureFrame(timeoutMilliseconds: 15);
+                    if (retryFrame.Status == CaptureStatus.Success && retryFrame.Buffer != null)
+                    {
+                        frame = retryFrame;
+                    }
+                }
+
+                // 4. Process and hand off successful frames
                 if (frame.Status == CaptureStatus.Success && frame.Buffer != null && frame.Width > 0 && frame.Height > 0)
                 {
                     // Composite protected windows discovered by WindowAffinityManager
@@ -187,6 +210,7 @@ public sealed class DesktopStreamingService : IDisposable
                         _latestFrame = frame;
                         _frameSequence++;
                     }
+                    TriggerImmediateFrame();
                 }
 
                 // Smooth pacing for capture thread (tight 1ms poll for 100-200 FPS)
@@ -269,6 +293,8 @@ public sealed class DesktopStreamingService : IDisposable
                 Console.WriteLine($"[*] Connecting real-time screen stream to Control Plane: {wsUri}...");
                 await ws.ConnectAsync(wsUri, ct);
                 Console.WriteLine($"[+] Live screen streaming WebSocket connected! Streaming active desktop display at {_targetFps} FPS (Quality: {_jpegQuality}%)...");
+                _awaitingFrameAck = false;
+                _measuredRttMs = 50.0;
                 try { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "streamer_status.log"), $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] STREAMING_ACTIVE to {wsUri} at {_targetFps} FPS (Quality: {_jpegQuality}%)\n"); } catch { }
 
                 var sendLock = new SemaphoreSlim(1, 1);
@@ -355,93 +381,87 @@ public sealed class DesktopStreamingService : IDisposable
                 }
             }
 
-            // 4. Single-Flight Transmission Gate (0-Bufferbloat Dropper)
-            // If the network is still busy sending the previous frame over Cloudflare, do NOT queue!
-            bool gateAcquired = _networkSendGate.Wait(0);
-            if (!gateAcquired)
+            // 3. End-to-End Single-Flight ACK Gate: Dynamic RTT-aware pacing prevents TCP queue accumulation over WAN/Tailscale/Cloudflare
+            if (_awaitingFrameAck)
             {
-                // Previous frame is still flying across the tunnel; wait remaining time and pick up the latest frame next tick
-                sw.Stop();
-                int skipDelay = Math.Max(1, frameIntervalMs - (int)sw.ElapsedMilliseconds);
-                await Task.Delay(skipDelay, ct);
-                continue;
+                double elapsedSinceSendMs = (Stopwatch.GetTimestamp() - _lastFrameSentTicks) * 1000.0 / Stopwatch.Frequency;
+                int dynamicTimeoutMs = Math.Clamp((int)(_measuredRttMs * 1.8), 120, 1000);
+                if (elapsedSinceSendMs < dynamicTimeoutMs)
+                {
+                    int waitRemaining = Math.Max(1, (int)(dynamicTimeoutMs - elapsedSinceSendMs));
+                    try
+                    {
+                        await _immediateFrameSignal.WaitAsync(waitRemaining, ct);
+                    }
+                    catch (OperationCanceledException) { break; }
+                    continue;
+                }
+                else
+                {
+                    // Safety timeout reached: reset gate so stream never stalls if an ACK was dropped
+                    _awaitingFrameAck = false;
+                }
             }
 
             try
             {
-                bool lockAcquired = await sendLock.WaitAsync(50, ct);
-                if (!lockAcquired)
+                if (isNewFrame && frameToEncode != null && frameToEncode.Buffer != null && frameToEncode.Width > 0 && frameToEncode.Height > 0)
                 {
-                    _networkSendGate.Release();
-                    sw.Stop();
-                    int skipDelay = Math.Max(1, frameIntervalMs - (int)sw.ElapsedMilliseconds);
-                    await Task.Delay(skipDelay, ct);
-                    continue;
-                }
-
-                try
-                {
-                    if (isNewFrame && frameToEncode != null && frameToEncode.Buffer != null && frameToEncode.Width > 0 && frameToEncode.Height > 0)
+                    var activeDisplay = _capturer.Display.Width > 0 ? _capturer.Display : _fallbackGdiCapturer.Display;
+                    if (activeDisplay.Width > 0)
                     {
-                        var activeDisplay = _capturer.Display.Width > 0 ? _capturer.Display : _fallbackGdiCapturer.Display;
-                        if (activeDisplay.Width > 0)
+                        _inputEngine.UpdateDisplay(activeDisplay);
+                    }
+                    else
+                    {
+                        _inputEngine.UpdateDisplay(new DisplayInfo { Left = 0, Top = 0, Width = frameToEncode.Width, Height = frameToEncode.Height });
+                    }
+
+                    int dispLeft = activeDisplay.Width > 0 ? activeDisplay.Left : 0;
+                    int dispTop = activeDisplay.Height > 0 ? activeDisplay.Top : 0;
+
+                    // 100% Respect user's configured quality and resolution settings (Zero erratic blurring)
+                    int effectiveQuality = _jpegQuality;
+                    int effectiveHeight = _maxHeight;
+
+                    // CPU JPEG encoding executes OUTSIDE sendLock so cursor updates and inputs are never blocked
+                    byte[] jpeg = EncodeFrameToJpeg(frameToEncode, effectiveQuality, dispLeft, dispTop, effectiveHeight, out RemoteCursorShape detectedShape);
+
+                    if (jpeg.Length > 0 && ws.State == WebSocketState.Open)
+                    {
+                        bool lockAcquired = await sendLock.WaitAsync(50, ct);
+                        if (lockAcquired)
                         {
-                            _inputEngine.UpdateDisplay(activeDisplay);
-                        }
-                        else
-                        {
-                            _inputEngine.UpdateDisplay(new DisplayInfo { Left = 0, Top = 0, Width = frameToEncode.Width, Height = frameToEncode.Height });
-                        }
-
-                        int dispLeft = activeDisplay.Width > 0 ? activeDisplay.Left : 0;
-                        int dispTop = activeDisplay.Height > 0 ? activeDisplay.Top : 0;
-
-                        // Calculate dynamic quality and adaptive downscaling to eliminate Cloudflare bufferbloat
-                        int effectiveQuality = _lowLatencyMode
-                            ? _abrEngine.CalculateDynamicQuality(_jpegQuality, _lastSendDurationMs, frameIntervalMs)
-                            : _jpegQuality;
-
-                        int effectiveHeight = _maxHeight;
-                        if (_lowLatencyMode && _lastSendDurationMs > 150 && effectiveHeight == 0)
-                        {
-                            effectiveHeight = 720; // Automatically downscale to 720p only under severe WAN bufferbloat (>150ms)
-                        }
-
-                        byte[] jpeg = EncodeFrameToJpeg(frameToEncode, effectiveQuality, dispLeft, dispTop, effectiveHeight, out RemoteCursorShape detectedShape);
-
-                        // Client-side zero-flicker cursor update if shape changed
-                        if (detectedShape != _lastReportedCursorShape)
-                        {
-                            _lastReportedCursorShape = detectedShape;
-                            byte[] cursorPacket = DataChannelProtocol.SerializeCursorUpdate(detectedShape);
-                            if (ws.State == WebSocketState.Open)
+                            try
                             {
-                                await ws.SendAsync(new ArraySegment<byte>(cursorPacket), WebSocketMessageType.Binary, true, ct);
+                                if (ws.State == WebSocketState.Open)
+                                {
+                                    if (detectedShape != _lastReportedCursorShape)
+                                    {
+                                        _lastReportedCursorShape = detectedShape;
+                                        byte[] cursorPacket = DataChannelProtocol.SerializeCursorUpdate(detectedShape);
+                                        await ws.SendAsync(new ArraySegment<byte>(cursorPacket), WebSocketMessageType.Binary, true, ct);
+                                    }
+
+                                    lastJpeg = jpeg;
+                                    lastSentTime = DateTime.UtcNow;
+
+                                    var sendSw = Stopwatch.StartNew();
+                                    await ws.SendAsync(new ArraySegment<byte>(jpeg), WebSocketMessageType.Binary, true, ct);
+                                    sendSw.Stop();
+                                    _lastSendDurationMs = sendSw.ElapsedMilliseconds;
+
+                                    // Arm single-flight ACK gate
+                                    _awaitingFrameAck = true;
+                                    _lastFrameSentTicks = Stopwatch.GetTimestamp();
+                                }
+                            }
+                            finally
+                            {
+                                sendLock.Release();
                             }
                         }
-
-                        if (jpeg.Length > 0 && ws.State == WebSocketState.Open)
-                        {
-                            lastJpeg = jpeg;
-                            lastSentTime = DateTime.UtcNow;
-
-                            var sendSw = Stopwatch.StartNew();
-                            await ws.SendAsync(new ArraySegment<byte>(jpeg), WebSocketMessageType.Binary, true, ct);
-                            sendSw.Stop();
-                            _lastSendDurationMs = sendSw.ElapsedMilliseconds;
-                        }
                     }
-                    else if (lastJpeg != null && (DateTime.UtcNow - lastSentTime).TotalMilliseconds >= 100 && ws.State == WebSocketState.Open)
-                    {
-                        // Static screen keepalive heartbeat (10 FPS minimum)
-                        lastSentTime = DateTime.UtcNow;
-                        await ws.SendAsync(new ArraySegment<byte>(lastJpeg), WebSocketMessageType.Binary, true, ct);
-                    }
-                }
-                finally
-                {
-                    sendLock.Release();
-                    _networkSendGate.Release();
                 }
             }
             catch (OperationCanceledException)
@@ -540,15 +560,34 @@ public sealed class DesktopStreamingService : IDisposable
                     }
                     offset += 18;
                 }
+                else if (type == (byte)InputEventType.FrameAck) // 0x42 FrameAck (2 to 5 bytes)
+                {
+                    double elapsedAckMs = (Stopwatch.GetTimestamp() - _lastFrameSentTicks) * 1000.0 / Stopwatch.Frequency;
+                    if (elapsedAckMs > 0 && elapsedAckMs < 10000)
+                    {
+                        _measuredRttMs = (_measuredRttMs <= 0) ? elapsedAckMs : (_measuredRttMs * 0.75 + elapsedAckMs * 0.25);
+                    }
+                    _awaitingFrameAck = false;
+                    TriggerImmediateFrame();
+                    offset += remaining.Length >= 5 ? 5 : 2;
+                }
                 else if (type == (byte)InputEventType.StreamConfig) // StreamConfig (14 bytes)
                 {
                     if (remaining.Length < 14) break;
                     if (DataChannelProtocol.TryDeserializeStreamConfig(remaining.Slice(0, 14), out var configPacket))
                     {
+                        int oldHeight = _maxHeight;
                         _targetFps = Math.Clamp((int)configPacket.TargetFps, 10, 200);
                         _jpegQuality = Math.Clamp((int)configPacket.Quality, 25, 95);
                         _maxHeight = configPacket.MaxHeight;
                         _lowLatencyMode = configPacket.LowLatencyMode != 0;
+                        if (oldHeight != _maxHeight)
+                        {
+                            _cachedBmp?.Dispose();
+                            _cachedBmp = null;
+                            _downscaleBuffer = null;
+                        }
+                        TriggerImmediateFrame();
                         Console.WriteLine($"[+] Dynamic Stream Config applied: {_targetFps} FPS, Quality {_jpegQuality}%, MaxHeight {_maxHeight}, LowLatency={_lowLatencyMode}");
                     }
                     offset += 14;
@@ -571,7 +610,11 @@ public sealed class DesktopStreamingService : IDisposable
 
                                 if (!_autoFollowActiveDesktop && !_targetDesktopMode.Equals("Auto", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    DesktopSwitchManager.SwitchToDesktopByName(_targetDesktopMode);
+                                    bool switched = DesktopSwitchManager.SwitchToDesktopByName(_targetDesktopMode);
+                                    if (!switched)
+                                    {
+                                        RequestElevatedDesktopSwitch?.Invoke(_targetDesktopMode);
+                                    }
                                 }
 
                                 if (_capturer is DxgiDesktopDuplicator dxgi && dxgi.TargetDisplayIndex != _targetDisplayIndex)
@@ -691,11 +734,6 @@ public sealed class DesktopStreamingService : IDisposable
                 {
                     if (currentCurX != _lastSentCursorX || currentCurY != _lastSentCursorY || currentShape != _lastSentCursorShape || !_lastSentCursorVisible)
                     {
-                        _lastSentCursorX = currentCurX;
-                        _lastSentCursorY = currentCurY;
-                        _lastSentCursorShape = currentShape;
-                        _lastSentCursorVisible = true;
-
                         var activeDisplay = _capturer.Display.Width > 0 ? _capturer.Display : _fallbackGdiCapturer.Display;
                         ushort dispW = (ushort)(activeDisplay.Width > 0 ? activeDisplay.Width : (_latestFrame?.Width ?? 1920));
                         ushort dispH = (ushort)(activeDisplay.Height > 0 ? activeDisplay.Height : (_latestFrame?.Height ?? 1080));
@@ -716,7 +754,7 @@ public sealed class DesktopStreamingService : IDisposable
                         byte[] rawCursorPos = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
                         if (ws.State == WebSocketState.Open)
                         {
-                            bool lockAcquired = await sendLock.WaitAsync(15, ct);
+                            bool lockAcquired = await sendLock.WaitAsync(25, ct);
                             if (lockAcquired)
                             {
                                 try
@@ -724,6 +762,11 @@ public sealed class DesktopStreamingService : IDisposable
                                     if (ws.State == WebSocketState.Open)
                                     {
                                         await ws.SendAsync(new ArraySegment<byte>(rawCursorPos), WebSocketMessageType.Binary, true, ct);
+                                        // Update tracking coordinates only after successful socket transmission
+                                        _lastSentCursorX = currentCurX;
+                                        _lastSentCursorY = currentCurY;
+                                        _lastSentCursorShape = currentShape;
+                                        _lastSentCursorVisible = true;
                                     }
                                 }
                                 finally
@@ -736,7 +779,6 @@ public sealed class DesktopStreamingService : IDisposable
                 }
                 else if (_lastSentCursorVisible)
                 {
-                    _lastSentCursorVisible = false;
                     var activeDisplay = _capturer.Display.Width > 0 ? _capturer.Display : _fallbackGdiCapturer.Display;
                     ushort dispW = (ushort)(activeDisplay.Width > 0 ? activeDisplay.Width : (_latestFrame?.Width ?? 1920));
                     ushort dispH = (ushort)(activeDisplay.Height > 0 ? activeDisplay.Height : (_latestFrame?.Height ?? 1080));
@@ -744,7 +786,7 @@ public sealed class DesktopStreamingService : IDisposable
                     byte[] rawCursorPos = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
                     if (ws.State == WebSocketState.Open)
                     {
-                        bool lockAcquired = await sendLock.WaitAsync(15, ct);
+                        bool lockAcquired = await sendLock.WaitAsync(25, ct);
                         if (lockAcquired)
                         {
                             try
@@ -752,6 +794,7 @@ public sealed class DesktopStreamingService : IDisposable
                                 if (ws.State == WebSocketState.Open)
                                 {
                                     await ws.SendAsync(new ArraySegment<byte>(rawCursorPos), WebSocketMessageType.Binary, true, ct);
+                                    _lastSentCursorVisible = false;
                                 }
                             }
                             finally
@@ -990,7 +1033,7 @@ public sealed class DesktopStreamingService : IDisposable
         _affinityManager.Dispose();
         _dcCapturer.Dispose();
         _fallbackGdiCapturer.Dispose();
-        _networkSendGate.Dispose();
+        _immediateFrameSignal.Dispose();
         _cts.Dispose();
     }
 }

@@ -78,7 +78,9 @@ public sealed class WindowsSendInputSink : IInputSink
         // Resolve target and foreground windows only for physical button clicks
         POINT pt = new POINT { x = physX, y = physY };
         IntPtr targetHwnd = WindowFromPoint(pt);
-        bool isElevatedTarget = IsWindowElevated(targetHwnd);
+        IntPtr rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+        if (rootHwnd == IntPtr.Zero) rootHwnd = targetHwnd;
+        bool isElevatedTarget = IsWindowElevated(rootHwnd);
 
         // 3. Button Click & Wheel Injection (Triple-Drive with Trap Neutralization)
         // Neutralize cursor containment traps (ClipCursor) and exclusive mouse captures (ReleaseCapture)
@@ -92,7 +94,7 @@ public sealed class WindowsSendInputSink : IInputSink
         IntPtr fgHwnd = GetForegroundWindow();
 
         // Break foreground focus monopoly if target window differs from foreground window
-        if (type == InputEventType.MouseButtonDown && targetHwnd != IntPtr.Zero && fgHwnd != IntPtr.Zero && targetHwnd != fgHwnd)
+        if (type == InputEventType.MouseButtonDown && targetHwnd != IntPtr.Zero && (fgHwnd == IntPtr.Zero || fgHwnd != rootHwnd))
         {
             BreakForegroundLock(targetHwnd, fgHwnd);
         }
@@ -172,9 +174,6 @@ public sealed class WindowsSendInputSink : IInputSink
 
     public void InjectKeyboard(ushort virtualKey, ushort scanCode, bool isDown, uint unicodeChar)
     {
-        bool isCustomDesktop = Capture.DesktopSwitchManager.IsCustomOrProtectedDesktopActive(out string desktopName) &&
-                               !string.Equals(desktopName, "Default", StringComparison.OrdinalIgnoreCase);
-
         uint flags = 0;
         if (!isDown) flags |= KEYEVENTF_KEYUP;
 
@@ -203,7 +202,7 @@ public sealed class WindowsSendInputSink : IInputSink
                 }
             };
             uint sent = SendInput(1, new[] { input }, Marshal.SizeOf<INPUT>());
-            if ((sent == 0 || isCustomDesktop) && ElevatedFallback != null)
+            if (sent == 0 && ElevatedFallback != null)
             {
                 var keyPacket = new KeyboardInputPacket(
                     isDown ? InputEventType.KeyDown : InputEventType.KeyUp,
@@ -247,8 +246,8 @@ public sealed class WindowsSendInputSink : IInputSink
                 keybd_event((byte)virtualKey, (byte)actualScan, keybdFlags, UIntPtr.Zero);
             }
 
-            // Route 3: Session 0 SYSTEM IPC bridge fallback ONLY if SendInput was blocked or custom desktop
-            if ((sent == 0 || isCustomDesktop) && ElevatedFallback != null)
+            // Route 3: Session 0 SYSTEM IPC bridge fallback ONLY if SendInput was blocked (sent == 0)
+            if (sent == 0 && ElevatedFallback != null)
             {
                 var keyPacket = new KeyboardInputPacket(
                     isDown ? InputEventType.KeyDown : InputEventType.KeyUp,
@@ -267,19 +266,40 @@ public sealed class WindowsSendInputSink : IInputSink
     {
         try
         {
-            uint fgThread = GetWindowThreadProcessId(fgHwnd, out _);
+            IntPtr rootHwnd = GetAncestor(targetHwnd, GA_ROOT);
+            if (rootHwnd == IntPtr.Zero) rootHwnd = targetHwnd;
+
+            uint fgThread = fgHwnd != IntPtr.Zero ? GetWindowThreadProcessId(fgHwnd, out _) : 0;
+            uint targetThread = GetWindowThreadProcessId(rootHwnd, out _);
             uint curThread = GetCurrentThreadId();
-            if (fgThread != curThread && fgThread != 0)
+
+            if (fgThread != 0 && fgThread != curThread)
             {
                 AttachThreadInput(curThread, fgThread, true);
-                SetForegroundWindow(targetHwnd);
-                BringWindowToTop(targetHwnd);
+                if (targetThread != 0 && targetThread != curThread && targetThread != fgThread)
+                {
+                    AttachThreadInput(curThread, targetThread, true);
+                }
+
+                SetForegroundWindow(rootHwnd);
+                BringWindowToTop(rootHwnd);
+
+                if (targetThread != 0 && targetThread != curThread && targetThread != fgThread)
+                {
+                    AttachThreadInput(curThread, targetThread, false);
+                }
                 AttachThreadInput(curThread, fgThread, false);
             }
             else
             {
-                SetForegroundWindow(targetHwnd);
-                BringWindowToTop(targetHwnd);
+                SetForegroundWindow(rootHwnd);
+                BringWindowToTop(rootHwnd);
+            }
+
+            // Bring direct focus to the clicked child element / control (e.g. Monaco/Chrome render widget)
+            if (targetHwnd != IntPtr.Zero && targetHwnd != rootHwnd)
+            {
+                try { SetFocus(targetHwnd); } catch { }
             }
         }
         catch { }

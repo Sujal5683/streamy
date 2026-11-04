@@ -311,6 +311,7 @@ class WebControllerApp {
 
         this.initCanvasSize();
         this.bindEvents();
+        this.restoreSavedStreamConfig();
         this.initIslandDraggable();
         this.initAuthAndDevices();
         this.initClipboardListener();
@@ -948,6 +949,14 @@ class WebControllerApp {
 
             this.streamClient.applyStreamConfig(fps, quality, maxHeight, this.dom.modalToggleLowLatency.checked ? 1 : 0);
             this.updateProfileButtons(null);
+            try {
+                localStorage.setItem('ER_STREAM_CONFIG', JSON.stringify({
+                    fps: fps,
+                    quality: quality,
+                    maxHeight: maxHeight,
+                    lowLatency: this.dom.modalToggleLowLatency.checked ? 1 : 0
+                }));
+            } catch { }
         };
 
         this.dom.sliderFps.addEventListener('input', (e) => syncSliders(parseInt(e.target.value, 10), parseInt(this.dom.sliderQuality.value, 10), parseInt(this.dom.selectHeight.value, 10)));
@@ -1049,16 +1058,19 @@ class WebControllerApp {
                 if (dispAttr === 'auto') {
                     this.selectedDisplayIndex = 0;
                     this.isAutoFollow = true;
+                    this.selectedDesktopName = 'Auto';
                     this.dom.screenSelectorLabel.textContent = 'Screen: Auto ▾';
                     if (this.dom.btnFloatScreens) this.dom.btnFloatScreens.textContent = 'Screen ▾';
                 } else {
                     this.selectedDisplayIndex = parseInt(dispAttr, 10);
                     this.isAutoFollow = false;
+                    this.selectedDesktopName = 'Auto';
                     this.dom.screenSelectorLabel.textContent = `Screen: Display ${this.selectedDisplayIndex + 1} ▾`;
                     if (this.dom.btnFloatScreens) this.dom.btnFloatScreens.textContent = `Display ${this.selectedDisplayIndex + 1} ▾`;
                 }
             } else if (deskAttr !== null) {
                 this.selectedDesktopName = deskAttr;
+                this.isAutoFollow = false;
                 this.dom.screenSelectorLabel.textContent = `Desktop: ${deskAttr} ▾`;
                 if (this.dom.btnFloatScreens) this.dom.btnFloatScreens.textContent = `${deskAttr} ▾`;
             }
@@ -1095,16 +1107,19 @@ class WebControllerApp {
                     if (dispAttr === 'auto') {
                         this.selectedDisplayIndex = 0;
                         this.isAutoFollow = true;
+                        this.selectedDesktopName = 'Auto';
                         this.dom.screenSelectorLabel.textContent = 'Screen: Auto ▾';
                         this.dom.btnFloatScreens.textContent = 'Auto ▾';
                     } else {
                         this.selectedDisplayIndex = parseInt(dispAttr, 10);
                         this.isAutoFollow = false;
+                        this.selectedDesktopName = 'Auto';
                         this.dom.screenSelectorLabel.textContent = `Screen: Display ${this.selectedDisplayIndex + 1} ▾`;
                         this.dom.btnFloatScreens.textContent = `Display ${this.selectedDisplayIndex + 1} ▾`;
                     }
                 } else if (deskAttr !== null) {
                     this.selectedDesktopName = deskAttr;
+                    this.isAutoFollow = false;
                     this.dom.screenSelectorLabel.textContent = `Desktop: ${deskAttr} ▾`;
                     this.dom.btnFloatScreens.textContent = `${deskAttr} ▾`;
                 }
@@ -1595,6 +1610,70 @@ class WebControllerApp {
         }
     }
 
+    restoreSavedStreamConfig() {
+        try {
+            const savedStreamCfg = localStorage.getItem('ER_STREAM_CONFIG');
+            if (savedStreamCfg) {
+                const cfg = JSON.parse(savedStreamCfg);
+                const fps = cfg.fps || 60;
+                const quality = cfg.quality || 75;
+                const maxHeight = cfg.maxHeight !== undefined ? cfg.maxHeight : 720;
+
+                if (this.dom.sliderFps) this.dom.sliderFps.value = fps;
+                if (this.dom.sliderFpsVal) this.dom.sliderFpsVal.textContent = fps;
+                if (this.dom.modalSliderFps) this.dom.modalSliderFps.value = fps;
+                if (this.dom.modalValFps) this.dom.modalValFps.textContent = `${fps} FPS`;
+
+                if (this.dom.sliderQuality) this.dom.sliderQuality.value = quality;
+                if (this.dom.sliderQualityVal) this.dom.sliderQualityVal.textContent = quality + '%';
+                if (this.dom.modalSliderQuality) this.dom.modalSliderQuality.value = quality;
+                if (this.dom.modalValQuality) this.dom.modalValQuality.textContent = quality + '%';
+
+                if (this.dom.selectHeight) this.dom.selectHeight.value = maxHeight.toString();
+                if (this.dom.modalSelectRes) this.dom.modalSelectRes.value = maxHeight.toString();
+
+                if (this.streamClient) {
+                    this.streamClient.targetFps = fps;
+                    this.streamClient.quality = quality;
+                    this.streamClient.maxHeight = maxHeight;
+                }
+
+                // Update quick chips
+                document.querySelectorAll('.fps-chip-btn').forEach(btn => {
+                    const bFps = parseInt(btn.getAttribute('data-fps'), 10);
+                    btn.classList.toggle('active', bFps === fps);
+                });
+                [this.dom.btnRes540, this.dom.btnRes720, this.dom.btnRes1080, this.dom.btnResNative].forEach(b => b?.classList.remove('active'));
+                if (maxHeight === 540) {
+                    this.dom.btnRes540?.classList.add('active');
+                    if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '540p Turbo';
+                } else if (maxHeight === 720) {
+                    this.dom.btnRes720?.classList.add('active');
+                    if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '720p HD';
+                } else if (maxHeight === 1080) {
+                    this.dom.btnRes1080?.classList.add('active');
+                    if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = '1080p FHD';
+                } else {
+                    this.dom.btnResNative?.classList.add('active');
+                    if (this.dom.valSliderResBadge) this.dom.valSliderResBadge.textContent = 'Native 1:1';
+                }
+            }
+        } catch { }
+    }
+
+    applyDefaultProfile() {
+        const isTunnel = window.location.hostname.includes('trycloudflare.com') ||
+                         window.location.hostname.includes('cloudflare') ||
+                         this.isTailscaleUrl(window.location.hostname);
+        if (isTunnel) {
+            this.applyProfile(60, 75, 720, 'Adaptive WAN Profile (60 FPS, 720p)');
+            this.updateProfileButtons(this.dom.profileWan);
+        } else {
+            this.applyProfile(60, 80, 1080, 'High-Speed LAN Profile (60 FPS, 1080p)');
+            this.updateProfileButtons(this.dom.profileLan);
+        }
+    }
+
     updateProfileButtons(activeBtn) {
         [this.dom.profile144, this.dom.profile120, this.dom.profileLan, this.dom.profileWan, this.dom.profileSharp].forEach(b => b?.classList.remove('active'));
         if (activeBtn) activeBtn.classList.add('active');
@@ -1633,6 +1712,15 @@ class WebControllerApp {
         }
 
         this.streamClient.applyStreamConfig(fps, quality, maxHeight, 1);
+        try {
+            localStorage.setItem('ER_STREAM_CONFIG', JSON.stringify({
+                fps: fps,
+                quality: quality,
+                maxHeight: maxHeight,
+                lowLatency: 1,
+                profileLabel: label
+            }));
+        } catch { }
         this.showToast(`Applied ${label}`, 'info');
     }
 
@@ -2820,6 +2908,93 @@ class WebControllerApp {
         if (list.desktops && list.desktops.length > 0) {
             this.availableDesktops = list.desktops;
         }
+        if (list.activeDesktop && this.isAutoFollow) {
+            if (this.dom.screenSelectorLabel) {
+                this.dom.screenSelectorLabel.textContent = `Screen: Auto (${list.activeDesktop}) ▾`;
+            }
+            if (this.dom.btnFloatScreens) {
+                this.dom.btnFloatScreens.textContent = `Auto (${list.activeDesktop}) ▾`;
+            }
+        }
+        this.renderDesktopAndDisplayMenus();
+    }
+
+    renderDesktopAndDisplayMenus() {
+        const renderMenuContent = (isFloating) => {
+            let html = '<div class="dropdown-section-title">DISPLAYS</div>';
+            
+            // Auto option
+            const isAutoActive = this.isAutoFollow;
+            html += `
+                <button class="dropdown-item ${isAutoActive ? 'active' : ''}" data-display="auto">
+                    <span>Auto (Primary Screen)</span>
+                    <span class="dropdown-shortcut">Default</span>
+                </button>
+            `;
+
+            // Physical Displays
+            const displays = (this.availableDisplays && this.availableDisplays.length > 0)
+                ? this.availableDisplays
+                : [{ index: 0, name: 'Display 1', width: 1920, height: 1080, isPrimary: true }];
+
+            displays.forEach(d => {
+                const isActive = !this.isAutoFollow && (this.selectedDisplayIndex === d.index) && (!this.selectedDesktopName || this.selectedDesktopName === 'Auto');
+                const resolution = (d.width && d.height) ? `${d.width}x${d.height}` : 'Active';
+                const tag = d.isPrimary ? 'Primary' : resolution;
+                html += `
+                    <button class="dropdown-item ${isActive ? 'active' : ''}" data-display="${d.index}">
+                        <span>Display ${d.index + 1}${d.isPrimary ? ' (Primary)' : ''}</span>
+                        <span class="dropdown-shortcut">${tag}</span>
+                    </button>
+                `;
+            });
+
+            html += '<div class="dropdown-divider"></div>';
+            html += '<div class="dropdown-section-title">DESKTOP SESSIONS</div>';
+
+            // Baseline standard desktops
+            const standardDesktops = [
+                { name: 'Default', label: 'Default User Desktop', tag: 'Active' },
+                { name: 'Winlogon', label: 'Winlogon / UAC Secure Screen', tag: 'Lock' },
+                { name: 'SafeExamBrowser', label: 'Safe Exam Browser (SEB)', tag: 'Isolated' }
+            ];
+
+            const seen = new Set();
+            const allDesktops = [];
+
+            standardDesktops.forEach(sd => {
+                seen.add(sd.name.toLowerCase());
+                allDesktops.push(sd);
+            });
+
+            if (this.availableDesktops && this.availableDesktops.length > 0) {
+                this.availableDesktops.forEach(name => {
+                    if (!seen.has(name.toLowerCase())) {
+                        seen.add(name.toLowerCase());
+                        allDesktops.push({ name: name, label: `Desktop: ${name}`, tag: 'Custom' });
+                    }
+                });
+            }
+
+            allDesktops.forEach(desk => {
+                const isActive = !this.isAutoFollow && this.selectedDesktopName && (this.selectedDesktopName.toLowerCase() === desk.name.toLowerCase());
+                html += `
+                    <button class="dropdown-item ${isActive ? 'active' : ''}" data-desktop="${desk.name}">
+                        <span>${desk.label}</span>
+                        <span class="dropdown-shortcut">${desk.tag}</span>
+                    </button>
+                `;
+            });
+
+            return html;
+        };
+
+        if (this.dom.screenSelectorMenu) {
+            this.dom.screenSelectorMenu.innerHTML = renderMenuContent(false);
+        }
+        if (this.dom.menuFloatScreens) {
+            this.dom.menuFloatScreens.innerHTML = renderMenuContent(true);
+        }
     }
 
     initClipboardListener() {
@@ -2883,15 +3058,17 @@ class WebControllerApp {
                 : this.serverUrl;
             this.streamClient.connect(relayHost, this.selectedDevice.deviceId, this.activeSession.sessionId);
 
-            // Auto-detect tunnel or direct LAN
-            const isTunnel = window.location.hostname.includes('trycloudflare.com') ||
-                             window.location.hostname.includes('cloudflare');
-            if (isTunnel) {
-                this.applyProfile(120, 55, 720, 'Cloudflare Ultra Profile (120 FPS, 720p)');
-                this.updateProfileButtons(this.dom.profile120);
+            // Respect user's saved resolution/quality preferences, or apply optimized default
+            const savedConfigRaw = localStorage.getItem('ER_STREAM_CONFIG');
+            if (savedConfigRaw) {
+                try {
+                    const savedConfig = JSON.parse(savedConfigRaw);
+                    this.applyProfile(savedConfig.fps || 60, savedConfig.quality || 75, savedConfig.maxHeight !== undefined ? savedConfig.maxHeight : 720, savedConfig.profileLabel || 'Saved Preferences');
+                } catch {
+                    this.applyDefaultProfile();
+                }
             } else {
-                this.applyProfile(120, 65, 1080, 'High-Speed LAN Profile (120 FPS, 1080p)');
-                this.updateProfileButtons(this.dom.profile120);
+                this.applyDefaultProfile();
             }
 
             this.dom.btnDisconnect.disabled = false;

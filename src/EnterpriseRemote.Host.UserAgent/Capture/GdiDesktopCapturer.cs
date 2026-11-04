@@ -120,6 +120,7 @@ public sealed class GdiDesktopCapturer : IScreenCapturer
     /// </summary>
     public bool RebindToActiveDesktop()
     {
+        DesktopSwitchManager.AttachCallingThreadToInputDesktop(out _);
         return Initialize();
     }
 

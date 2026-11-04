@@ -266,7 +266,8 @@ public sealed class DesktopSwitchManager : IDisposable
         {
             if (GetUserObjectInformation(hDesktop, UOI_NAME, buffer, needed, out _))
             {
-                return Marshal.PtrToStringUni(buffer) ?? string.Empty;
+                string raw = Marshal.PtrToStringUni(buffer) ?? string.Empty;
+                return raw.TrimEnd('\0');
             }
         }
         finally
@@ -348,7 +349,7 @@ public sealed class DesktopSwitchManager : IDisposable
     }
 
     #region Win32 P/Invoke
-    private delegate bool EnumDesktopsDelegate(string lpszDesktop, IntPtr lParam);
+    private delegate bool EnumDesktopsDelegate([MarshalAs(UnmanagedType.LPWStr)] string lpszDesktop, IntPtr lParam);
 
     private const uint UOI_NAME = 2;
     private const uint DESKTOP_READOBJECTS = 0x0001;
@@ -367,8 +368,8 @@ public sealed class DesktopSwitchManager : IDisposable
     private const uint WINSTA_ENUMERATE = 0x0100;
     private const uint WINSTA_ENUMDESKTOPS = 0x0001;
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr OpenWindowStation(string lpszWinSta, bool fInherit, uint dwDesiredAccess);
+    [DllImport("user32.dll", EntryPoint = "OpenWindowStationW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr OpenWindowStation([MarshalAs(UnmanagedType.LPWStr)] string lpszWinSta, bool fInherit, uint dwDesiredAccess);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetProcessWindowStation(IntPtr hWinSta);
@@ -379,8 +380,8 @@ public sealed class DesktopSwitchManager : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr OpenInputDesktop(uint dwFlags, bool fInherit, uint dwDesiredAccess);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+    [DllImport("user32.dll", EntryPoint = "OpenDesktopW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr OpenDesktop([MarshalAs(UnmanagedType.LPWStr)] string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SwitchDesktop(IntPtr hDesktop);
@@ -391,10 +392,10 @@ public sealed class DesktopSwitchManager : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool CloseDesktop(IntPtr hDesktop);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "GetUserObjectInformationW", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool GetUserObjectInformation(IntPtr hObj, uint nIndex, IntPtr pvInfo, uint nLength, out uint lpnLengthNeeded);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll", EntryPoint = "EnumDesktopsW", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool EnumDesktops(IntPtr hwinsta, EnumDesktopsDelegate lpEnumFunc, IntPtr lParam);
     #endregion
 }

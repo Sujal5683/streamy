@@ -11,6 +11,9 @@ public class ViewerContext
     public WebSocket Socket { get; }
     public SemaphoreSlim SendLock { get; } = new(1, 1);
     public Channel<byte[]> FrameChannel { get; }
+    public volatile byte[]? PendingCursorPacket;
+    public readonly SemaphoreSlim AckSignal = new(0, 1);
+    public volatile bool IsViewerFrameInFlight;
     public CancellationTokenSource Cts { get; } = new();
 
     public ViewerContext(WebSocket socket)
@@ -30,6 +33,7 @@ public class ViewerContext
         try { FrameChannel.Writer.TryComplete(); } catch { }
         try { Cts.Dispose(); } catch { }
         try { SendLock.Dispose(); } catch { }
+        try { AckSignal.Dispose(); } catch { }
     }
 }
 
@@ -222,32 +226,64 @@ public static class StreamRelayHub
                     }
                     else
                     {
-                        // Control / Telemetry packet from host (e.g. 0x41 LatencyPong, 0x25 CursorUpdate, 0x22 DesktopList)
-                        // Deliver directly without touching LatestFrameJpeg or the frame queue
+                        // Control / Telemetry packet from host (e.g. 0x53 CursorPosition, 0x41 LatencyPong, 0x52 CursorUpdate, 0x51 DesktopList)
+                        bool isCursor = rawMsg.Length == 11 && rawMsg[0] == 0x53;
                         foreach (var kvp in session.Viewers)
                         {
                             var viewer = kvp.Value;
                             if (viewer.Socket.State == WebSocketState.Open)
                             {
-                                _ = Task.Run(async () =>
+                                if (isCursor)
                                 {
-                                    try
+                                    viewer.PendingCursorPacket = rawMsg;
+                                    if (viewer.SendLock.CurrentCount > 0)
                                     {
-                                        await viewer.SendLock.WaitAsync(viewer.Cts.Token);
+                                        _ = Task.Run(async () =>
+                                        {
+                                            try
+                                            {
+                                                if (await viewer.SendLock.WaitAsync(5, viewer.Cts.Token))
+                                                {
+                                                    try
+                                                    {
+                                                        byte[]? toSend = Interlocked.Exchange(ref viewer.PendingCursorPacket, null);
+                                                        if (toSend != null && viewer.Socket.State == WebSocketState.Open)
+                                                        {
+                                                            await viewer.Socket.SendAsync(new ArraySegment<byte>(toSend), WebSocketMessageType.Binary, true, viewer.Cts.Token);
+                                                        }
+                                                    }
+                                                    finally
+                                                    {
+                                                        viewer.SendLock.Release();
+                                                    }
+                                                }
+                                            }
+                                            catch { }
+                                        });
+                                    }
+                                }
+                                else
+                                {
+                                    _ = Task.Run(async () =>
+                                    {
                                         try
                                         {
-                                            if (viewer.Socket.State == WebSocketState.Open)
+                                            await viewer.SendLock.WaitAsync(viewer.Cts.Token);
+                                            try
                                             {
-                                                await viewer.Socket.SendAsync(new ArraySegment<byte>(rawMsg), WebSocketMessageType.Binary, true, viewer.Cts.Token);
+                                                if (viewer.Socket.State == WebSocketState.Open)
+                                                {
+                                                    await viewer.Socket.SendAsync(new ArraySegment<byte>(rawMsg), WebSocketMessageType.Binary, true, viewer.Cts.Token);
+                                                }
+                                            }
+                                            finally
+                                            {
+                                                viewer.SendLock.Release();
                                             }
                                         }
-                                        finally
-                                        {
-                                            viewer.SendLock.Release();
-                                        }
-                                    }
-                                    catch { }
-                                });
+                                        catch { }
+                                    });
+                                }
                             }
                         }
                     }
@@ -316,7 +352,7 @@ public static class StreamRelayHub
 
         // Run frame sender loop and input receiver loop concurrently
         var sendFramesTask = RunViewerFrameDeliveryLoopAsync(session, viewerCtx, ct);
-        var receiveInputTask = RunViewerInputReceiverLoopAsync(session, viewerWs, ct);
+        var receiveInputTask = RunViewerInputReceiverLoopAsync(session, viewerCtx, ct);
 
         try
         {
@@ -342,6 +378,17 @@ public static class StreamRelayHub
                     break;
                 }
 
+                // Single-in-flight WAN pacing: if previous frame is still buffering/in-flight over WAN, wait for ACK or max 500ms safety timeout
+                if (viewerCtx.IsViewerFrameInFlight)
+                {
+                    try
+                    {
+                        await viewerCtx.AckSignal.WaitAsync(500, ct);
+                    }
+                    catch (OperationCanceledException) { break; }
+                    viewerCtx.IsViewerFrameInFlight = false;
+                }
+
                 // Drain to get the latest frame if multiple arrived, ensuring zero latency
                 byte[]? frameToSend = null;
                 while (channel.Reader.TryRead(out var item))
@@ -356,7 +403,15 @@ public static class StreamRelayHub
                     {
                         if (viewerWs.State == WebSocketState.Open)
                         {
+                            viewerCtx.IsViewerFrameInFlight = true;
                             await viewerWs.SendAsync(new ArraySegment<byte>(frameToSend), WebSocketMessageType.Binary, true, ct);
+                        }
+
+                        // Immediately flush any cursor packet that arrived while the video frame was transmitting
+                        byte[]? pendingCursor = Interlocked.Exchange(ref viewerCtx.PendingCursorPacket, null);
+                        if (pendingCursor != null && viewerWs.State == WebSocketState.Open)
+                        {
+                            await viewerWs.SendAsync(new ArraySegment<byte>(pendingCursor), WebSocketMessageType.Binary, true, ct);
                         }
                     }
                     catch (WebSocketException)
@@ -380,8 +435,9 @@ public static class StreamRelayHub
         catch { }
     }
 
-    private static async Task RunViewerInputReceiverLoopAsync(DeviceStreamSession session, WebSocket viewerWs, CancellationToken ct)
+    private static async Task RunViewerInputReceiverLoopAsync(DeviceStreamSession session, ViewerContext viewerCtx, CancellationToken ct)
     {
+        var viewerWs = viewerCtx.Socket;
         byte[] buffer = new byte[4096]; // Input and control packets are small
 
         try
@@ -395,7 +451,19 @@ public static class StreamRelayHub
                     return;
                 }
 
-                if (result.Count > 0 && session.HostSocket?.State == WebSocketState.Open)
+                if (result.Count > 0)
+                {
+                    // 0x42 FrameAck from viewer immediately clears in-flight state and wakes the delivery loop
+                    if (buffer[0] == 0x42)
+                    {
+                        viewerCtx.IsViewerFrameInFlight = false;
+                        if (viewerCtx.AckSignal.CurrentCount == 0)
+                        {
+                            try { viewerCtx.AckSignal.Release(); } catch { }
+                        }
+                    }
+
+                    if (session.HostSocket?.State == WebSocketState.Open)
                 {
                     byte[] inputPacket = new byte[result.Count];
                     Array.Copy(buffer, inputPacket, result.Count);
@@ -418,6 +486,7 @@ public static class StreamRelayHub
                     }
                 }
             }
+        }
         }
         catch (WebSocketException) { }
         catch (OperationCanceledException) { }

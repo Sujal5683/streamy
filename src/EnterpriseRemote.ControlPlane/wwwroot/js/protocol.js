@@ -18,7 +18,8 @@ export const InputEventType = {
     HostStatus: 0x26,
     StreamConfig: 0x35,
     LatencyPing: 0x40,
-    LatencyPong: 0x41
+    LatencyPong: 0x41,
+    FrameAck: 0x42
 };
 
 export const MouseButton = {
@@ -294,4 +295,17 @@ export function tryDeserializeHostStatus(dataView) {
     if (dataView.byteLength < 2) return null;
     if (dataView.getUint8(0) !== InputEventType.HostStatus) return null;
     return dataView.getUint8(1) === 1;
+}
+
+/**
+ * Serializes 0x42 FrameAck packet: 5 bytes
+ * [0]: 0x42
+ * [1..4]: Frame Sequence (uint32 LE)
+ */
+export function serializeFrameAck(sequence = 0) {
+    const buffer = new ArrayBuffer(5);
+    const view = new DataView(buffer);
+    view.setUint8(0, InputEventType.FrameAck);
+    view.setUint32(1, sequence, true);
+    return buffer;
 }

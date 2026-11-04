@@ -211,6 +211,36 @@ public static class Program
                 _ = pipeClient.SendFrameAsync(frame);
             }
         };
+        if (streamer != null)
+        {
+            streamer.RequestElevatedDesktopSwitch = desktopName =>
+            {
+                if (pipeClient.IsConnected)
+                {
+                    var frame = new IpcFrame
+                    {
+                        MessageType = IpcMessageType.SwitchDesktopElevated,
+                        SequenceNumber = 0,
+                        Payload = System.Text.Encoding.UTF8.GetBytes(desktopName)
+                    };
+                    _ = pipeClient.SendFrameAsync(frame);
+                }
+            };
+
+            streamer.RequestDesktopAccess = () =>
+            {
+                if (pipeClient.IsConnected)
+                {
+                    var frame = new IpcFrame
+                    {
+                        MessageType = IpcMessageType.GrantDesktopAccess,
+                        SequenceNumber = 0,
+                        Payload = Array.Empty<byte>()
+                    };
+                    _ = pipeClient.SendFrameAsync(frame);
+                }
+            };
+        }
         pipeClient.OnMessageReceived += frame =>
         {
             if (frame.MessageType == IpcMessageType.PromptConsent)

@@ -12,7 +12,8 @@ import {
     tryDeserializeCursorUpdate,
     tryDeserializeCursorPosition,
     tryDeserializeDesktopList,
-    tryDeserializeHostStatus
+    tryDeserializeHostStatus,
+    serializeFrameAck
 } from './protocol.js';
 
 export class RemoteStreamClient {
@@ -27,6 +28,11 @@ export class RemoteStreamClient {
         this.deviceId = null;
         this.sessionId = null;
         this.remoteCursor = null;
+
+        // Dynamic Stream Parameters
+        this.targetFps = options.targetFps || 60;
+        this.quality = options.quality || 75;
+        this.maxHeight = options.maxHeight !== undefined ? options.maxHeight : 720;
 
         // Viewport & frame metrics
         this.scaleMode = 'fit'; // 'fit' | 'stretch' | 'original'
@@ -105,6 +111,7 @@ export class RemoteStreamClient {
                 this.isConnected = true;
                 this.reconnectAttempts = 0;
                 this.onStatusChange('connected', `Live stream connected to ${deviceId}`);
+                this.applyStreamConfig(this.targetFps, this.quality, this.maxHeight, 1);
                 this.startPingLoop();
                 this.startTelemetryLoop();
             };
@@ -233,16 +240,25 @@ export class RemoteStreamClient {
 
         // 3. Desktop JPEG frame: starts with SOI marker 0xFF, 0xD8
         if (len > 4 && view.getUint8(0) === 0xFF && view.getUint8(1) === 0xD8) {
+            this.incomingSeq = (this.incomingSeq || 0) + 1;
+            const seq = this.incomingSeq;
+
+            // Immediately send FrameAck (5 bytes) to host to pace single-in-flight streaming with 0 bufferbloat
+            this.sendFrameAck(seq);
+
             try {
-                this.incomingSeq = (this.incomingSeq || 0) + 1;
-                const seq = this.incomingSeq;
 
                 const blob = new Blob([buffer], { type: 'image/jpeg' });
-                // createImageBitmap is hardware-accelerated and runs off the main JS thread
-                const bitmap = await createImageBitmap(blob, {
-                    imageOrientation: 'none',
-                    premultiplyAlpha: 'none'
-                });
+                // Hardware-accelerated decoding with broad WebKit/Safari fallback
+                let bitmap;
+                try {
+                    bitmap = await createImageBitmap(blob, {
+                        imageOrientation: 'none',
+                        premultiplyAlpha: 'none'
+                    });
+                } catch {
+                    bitmap = await createImageBitmap(blob);
+                }
 
                 if (seq < this.latestRenderedSeq) {
                     bitmap.close();
@@ -267,6 +283,17 @@ export class RemoteStreamClient {
     }
 
     /**
+     * Sends zero-latency 0x42 FrameAck to host for single-in-flight queue control
+     */
+    sendFrameAck(seq = 0) {
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        const packet = serializeFrameAck(seq);
+        try {
+            this.ws.send(packet);
+        } catch { }
+    }
+
+    /**
      * Send arbitrary binary packet over WebSocket (Mouse, Keyboard, Config, Ping)
      */
     sendPacket(arrayBuffer) {
@@ -285,6 +312,9 @@ export class RemoteStreamClient {
      * Send dynamic stream configuration (FPS, Quality, MaxHeight)
      */
     applyStreamConfig(targetFps, quality, maxHeight = 0, lowLatency = 1) {
+        this.targetFps = targetFps;
+        this.quality = quality;
+        this.maxHeight = maxHeight;
         const packet = serializeStreamConfig(targetFps, quality, maxHeight, lowLatency);
         return this.sendPacket(packet);
     }

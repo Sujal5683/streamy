@@ -15,6 +15,8 @@ public enum InputEventType : byte
     StreamConfig = 0x35,
     LatencyPing = 0x40,
     LatencyPong = 0x41,
+    /// <summary>Viewer-to-host frame acknowledgment for end-to-end zero-bufferbloat flow control.</summary>
+    FrameAck = 0x42,
     /// <summary>Requests the host to switch to a named Win32 desktop.</summary>
     SwitchDesktop = 0x50,
     /// <summary>Host-to-controller notification of available desktops and displays.</summary>
@@ -513,6 +515,32 @@ public static class DataChannelProtocol
 
         packet = new CursorPositionPacket(x, y, w, h, shape, visible);
         return true;
+    }
+
+    /// <summary>Serializes a 5-byte FrameAck packet for zero-bufferbloat flow control.</summary>
+    public static byte[] SerializeFrameAck(uint sequence = 0)
+    {
+        byte[] buffer = new byte[5];
+        buffer[0] = (byte)InputEventType.FrameAck;
+        BitConverter.TryWriteBytes(buffer.AsSpan(1, 4), sequence);
+        return buffer;
+    }
+
+    /// <summary>Tries to deserialize a FrameAck packet from raw bytes.</summary>
+    public static bool TryDeserializeFrameAck(ReadOnlySpan<byte> data, out uint sequence)
+    {
+        if (data.Length >= 5 && data[0] == (byte)InputEventType.FrameAck)
+        {
+            sequence = BitConverter.ToUInt32(data.Slice(1, 4));
+            return true;
+        }
+        else if (data.Length >= 2 && data[0] == (byte)InputEventType.FrameAck)
+        {
+            sequence = 0;
+            return true;
+        }
+        sequence = 0;
+        return false;
     }
 }
 
