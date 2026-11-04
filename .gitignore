@@ -92,3 +92,4 @@ RemotePC_Package/zh-Hant/
 # Staging and flag files
 *Bin_Staging/
 *.flag
+**/server_url.txt

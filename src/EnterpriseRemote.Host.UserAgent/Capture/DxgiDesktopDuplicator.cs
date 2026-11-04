@@ -200,6 +200,7 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             }
         }
 
+
         if (hr != S_OK || _d3dDevice == IntPtr.Zero)
         {
             if (pTargetOutput != IntPtr.Zero) Marshal.Release(pTargetOutput);
@@ -239,14 +240,16 @@ public sealed class DxgiDesktopDuplicator : IScreenCapturer
             }
 
             // Query IDXGIOutput1
-            Guid iidDxgiOutput1 = new("00cddea8-939b-4b83-a340-b1e03764a307");
+            Guid iidDxgiOutput1 = new("00cddea8-939b-4b83-a340-a685226666cc");
             hr = Marshal.QueryInterface(pTargetOutput, ref iidDxgiOutput1, out pDxgiOutput1);
+
             if (hr != S_OK || pDxgiOutput1 == IntPtr.Zero) return false;
 
             // Direct vtable call: IDXGIOutput1::DuplicateOutput (Slot 22)
             IntPtr* vtblDxgiOutput1 = *(IntPtr**)pDxgiOutput1;
             var duplicateOutput = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, out IntPtr, int>)vtblDxgiOutput1[22];
             hr = duplicateOutput(pDxgiOutput1, _d3dDevice, out _dxgiOutputDuplication);
+
             if (hr != S_OK || _dxgiOutputDuplication == IntPtr.Zero) return false;
 
             // Query DXGI_OUTDUPL_DESC (Slot 7 of IDXGIOutputDuplication)

@@ -1,6 +1,6 @@
 # Streamy — Secure Enterprise Remote Desktop & Ultra-Low Latency Streaming Platform
 
-[![Release](https://img.shields.io/badge/release-Streamy%20V1.0.13-blue.svg)](https://github.com/Sujal5683/streamy/releases)
+[![Release](https://img.shields.io/badge/release-Streamy%20V1.0.14-blue.svg)](https://github.com/Sujal5683/streamy/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011%20(x64)-brightgreen.svg)]()
 [![Runtime](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)]()
