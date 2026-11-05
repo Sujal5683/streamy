@@ -7,6 +7,7 @@ import {
     InputEventType,
     MouseButton,
     ModifierKeys,
+    MouseCursorMode,
     serializeMouse,
     serializeKeyboard
 } from './protocol.js';
@@ -78,6 +79,7 @@ export class InputHandler {
         this.canvas = canvas;
         this.streamClient = streamClient;
         this.inputEnabled = true;
+        this.mouseMode = MouseCursorMode.DualIndependent;
 
         this.isMouseDown = false;
         this.lastNormX = -1;
@@ -86,6 +88,15 @@ export class InputHandler {
 
         this.initMouseListeners();
         this.initKeyboardListeners();
+    }
+
+    setMouseMode(mode) {
+        this.mouseMode = mode;
+        if (mode === MouseCursorMode.Synchronized) {
+            this.canvas.classList.add('cursor-mode-sync');
+        } else {
+            this.canvas.classList.remove('cursor-mode-sync');
+        }
     }
 
     setInputEnabled(enabled) {
@@ -148,6 +159,15 @@ export class InputHandler {
             const { inside, normX, normY } = this.getNormalizedCoordinates(e);
             if (!inside && !this.isMouseDown) return;
 
+            // In Stealth Jump-on-Click mode (Mode 3):
+            // Moving the mouse does NOT move the remote host's cursor.
+            // Mouse move packets are completely suppressed unless actively dragging (isMouseDown === true).
+            if (this.mouseMode === MouseCursorMode.JumpOnClick && !this.isMouseDown) {
+                this.lastNormX = normX;
+                this.lastNormY = normY;
+                return;
+            }
+
             const now = performance.now();
             if (!this.isMouseDown && (now - this.lastMouseMoveTime) < 4.0) {
                 return;
@@ -181,6 +201,15 @@ export class InputHandler {
             try { c.setPointerCapture?.(e.pointerId); } catch { }
             this.lastNormX = normX;
             this.lastNormY = normY;
+
+            // In Stealth Jump-on-Click mode (Mode 3):
+            // The cursor must jump to the clicked coordinates immediately on the click event.
+            // Sending an explicit MouseMove jump packet immediately before MouseButtonDown
+            // guarantees the remote host sets cursor position to the exact target before click actuation.
+            if (this.mouseMode === MouseCursorMode.JumpOnClick) {
+                const jumpPacket = serializeMouse(InputEventType.MouseMove, MouseButton.None, normX, normY, 0, 0);
+                this.streamClient.sendPacket(jumpPacket);
+            }
 
             const btn = e.button === 2 ? MouseButton.Right :
                         e.button === 1 ? MouseButton.Middle : MouseButton.Left;

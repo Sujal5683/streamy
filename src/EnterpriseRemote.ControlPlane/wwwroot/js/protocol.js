@@ -39,6 +39,12 @@ export const ModifierKeys = {
     Windows: 8
 };
 
+export const MouseCursorMode = {
+    Synchronized: 'synchronized', // Mode 1: 1:1 Lockstep Hardware Mirror
+    DualIndependent: 'dual',       // Mode 2: Dual Independent Cursors
+    JumpOnClick: 'jump_on_click'   // Mode 3: Decoupled Hover, Jump on Click
+};
+
 export const RemoteCursorShape = {
     Default: 0, // Standard Arrow
     Hand: 1,    // Pointer / Hand (buttons, links)

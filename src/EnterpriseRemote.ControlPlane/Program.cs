@@ -217,6 +217,22 @@ store.SaveUser(rootUser);
 // Health & Liveness
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
+// Network Gateway introspection for zero-config Direct LAN and Tailscale fast-path discovery
+app.MapGet("/api/v1/network/gateways", () =>
+{
+    var lanAdapters = LanDiscoveryUtils.GetActiveLanAdapters();
+    var lanIps = lanAdapters.Select(a => a.IpAddress).Where(ip => !ip.StartsWith("127.")).Distinct().ToList();
+    string? tailscaleIp = LanDiscoveryUtils.GetTailscaleIp();
+    string? publicTunnelUrl = LanDiscoveryUtils.TryReadPublicTunnelUrl();
+    return Results.Ok(new
+    {
+        lanIps,
+        tailscaleIp,
+        publicTunnelUrl,
+        port = 5293
+    });
+});
+
 // Auth: Roles list (used by WebView2 controller health check and UI role introspection)
 app.MapGet("/api/v1/auth/roles", () => Results.Ok(new[]
 {

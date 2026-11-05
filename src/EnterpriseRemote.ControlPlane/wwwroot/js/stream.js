@@ -5,6 +5,7 @@
 
 import {
     InputEventType,
+    MouseCursorMode,
     serializeLatencyPing,
     serializeStreamConfig,
     serializeSwitchDesktop,
@@ -20,6 +21,10 @@ export class RemoteStreamClient {
     constructor(canvas, options = {}) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+        if (this.ctx) {
+            this.ctx.imageSmoothingEnabled = true;
+            this.ctx.imageSmoothingQuality = 'high';
+        }
         this.options = options;
 
         this.ws = null;
@@ -28,6 +33,7 @@ export class RemoteStreamClient {
         this.deviceId = null;
         this.sessionId = null;
         this.remoteCursor = null;
+        this.mouseMode = MouseCursorMode.DualIndependent;
 
         // Dynamic Stream Parameters
         this.targetFps = options.targetFps || 60;
@@ -407,6 +413,11 @@ export class RemoteStreamClient {
 
         if (cw <= 0 || ch <= 0 || bw <= 0 || bh <= 0) return;
 
+        if (ctx.imageSmoothingQuality !== 'high') {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+        }
+
         let rx = 0, ry = 0, rw = cw, rh = ch;
 
         if (this.scaleMode === 'stretch') {
@@ -507,14 +518,43 @@ export class RemoteStreamClient {
             ctx.strokeStyle = '#0a0e1a';
             ctx.stroke();
 
-            // Vibrant cyan tip indicator to guarantee 100% visibility over dark terminals and white docs
-            ctx.fillStyle = '#00e5ff';
-            ctx.beginPath();
-            ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
-            ctx.fill();
+            // Mode-specific cursor indicator
+            if (this.mouseMode === MouseCursorMode.JumpOnClick) {
+                // Amber/Gold stationary tip: indicates remote cursor resting location in Stealth Jump mode
+                ctx.fillStyle = '#f59e0b';
+                ctx.beginPath();
+                ctx.arc(0, 0, 2.2, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (this.mouseMode === MouseCursorMode.DualIndependent) {
+                // Vibrant cyan tip indicator for collaborative dual cursors
+                ctx.fillStyle = '#06b6d4';
+                ctx.beginPath();
+                ctx.arc(0, 0, 2.0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw subtle mini "Host" badge next to remote cursor in Dual mode
+                ctx.fillStyle = 'rgba(6, 182, 212, 0.9)';
+                ctx.font = 'bold 9px Segoe UI, system-ui, sans-serif';
+                ctx.fillText('Host', 14, 14);
+            } else {
+                // Mode 1 (Synchronized Lockstep): pure high-contrast hardware pointer
+                ctx.fillStyle = '#00e5ff';
+                ctx.beginPath();
+                ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         ctx.restore();
+    }
+
+    setMouseMode(mode) {
+        this.mouseMode = mode;
+        if (mode === MouseCursorMode.Synchronized) {
+            this.canvas.classList.add('cursor-mode-sync');
+        } else {
+            this.canvas.classList.remove('cursor-mode-sync');
+        }
     }
 
     setScaleMode(mode) {

@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
-    <Version>1.0.15</Version>
-    <AssemblyVersion>1.0.15.0</AssemblyVersion>
-    <FileVersion>1.0.15.0</FileVersion>
-    <InformationalVersion>Streamy V1.0.15</InformationalVersion>
+    <Version>1.0.16</Version>
+    <AssemblyVersion>1.0.16.0</AssemblyVersion>
+    <FileVersion>1.0.16.0</FileVersion>
+    <InformationalVersion>Streamy V1.0.16</InformationalVersion>
     <Authors>Sujal Kumar</Authors>
     <Company>Streamy</Company>
     <Product>Streamy Enterprise Remote Desktop</Product>

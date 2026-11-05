@@ -1,4 +1,6 @@
 using System;
+using System.Net.Http;
+using System.Text.Json;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -61,6 +63,7 @@ public sealed class DesktopStreamingService : IDisposable
     private int _lastSentCursorY = -1;
     private RemoteCursorShape _lastSentCursorShape = RemoteCursorShape.Default;
     private bool _lastSentCursorVisible = true;
+    private volatile byte[]? _pendingCursorPacket;
 
     // Pipelined Sliding Window (MaxInFlight = 2) & Rate Pacer
     private readonly SemaphoreSlim _immediateFrameSignal = new(0, 1);
@@ -376,12 +379,82 @@ public sealed class DesktopStreamingService : IDisposable
         return null;
     }
 
+    private async Task<string> ResolveOptimalServerUrlAsync(string activeServer, CancellationToken ct)
+    {
+        string cleanServer = UrlUtils.NormalizeServerUrl(activeServer);
+        if (cleanServer.Contains("127.0.0.1") || cleanServer.Contains("localhost"))
+        {
+            return cleanServer;
+        }
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+            string gatewaysUrl = $"{cleanServer.TrimEnd('/')}/api/v1/network/gateways";
+            var resp = await http.GetAsync(gatewaysUrl, ct);
+            if (resp.IsSuccessStatusCode)
+            {
+                string json = await resp.Content.ReadAsStringAsync(ct);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                int port = root.TryGetProperty("port", out var pProp) ? pProp.GetInt32() : 5293;
+
+                // 1. Check if same Wi-Fi / Local LAN IP is directly reachable (<200ms)
+                if (root.TryGetProperty("lanIps", out var ipsElem) && ipsElem.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var ipItem in ipsElem.EnumerateArray())
+                    {
+                        string? ip = ipItem.GetString();
+                        if (string.IsNullOrWhiteSpace(ip) || ip.StartsWith("127.")) continue;
+
+                        string candidate = $"http://{ip}:{port}";
+                        try
+                        {
+                            using var probeHttp = new HttpClient { Timeout = TimeSpan.FromMilliseconds(200) };
+                            var probeResp = await probeHttp.GetAsync($"{candidate}/health", ct);
+                            if (probeResp.IsSuccessStatusCode)
+                            {
+                                Console.WriteLine($"[+] Same Wi-Fi Direct LAN Gateway verified at {candidate}! Upgrading stream to local high-speed path...");
+                                return candidate;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+
+                // 2. Check if Tailscale direct WireGuard peer IP is reachable (<300ms)
+                if (root.TryGetProperty("tailscaleIp", out var tsElem) && tsElem.ValueKind == JsonValueKind.String)
+                {
+                    string? tsIp = tsElem.GetString();
+                    if (!string.IsNullOrWhiteSpace(tsIp))
+                    {
+                        string candidate = $"http://{tsIp}:{port}";
+                        try
+                        {
+                            using var probeHttp = new HttpClient { Timeout = TimeSpan.FromMilliseconds(300) };
+                            var probeResp = await probeHttp.GetAsync($"{candidate}/health", ct);
+                            if (probeResp.IsSuccessStatusCode)
+                            {
+                                Console.WriteLine($"[+] Tailscale WireGuard P2P Gateway verified at {candidate}! Upgrading stream to direct Tailscale path...");
+                                return candidate;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+        }
+        catch { }
+
+        return cleanServer;
+    }
+
     private async Task ConnectionManagerLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             string activeServer = TryGetLatestServerUrl() ?? _serverUrl;
-            string cleanServer = UrlUtils.NormalizeServerUrl(activeServer);
+            string cleanServer = await ResolveOptimalServerUrlAsync(activeServer, ct);
             string wsBase = cleanServer.TrimEnd('/')
                 .Replace("http://", "ws://", StringComparison.OrdinalIgnoreCase)
                 .Replace("https://", "wss://", StringComparison.OrdinalIgnoreCase);
@@ -486,8 +559,9 @@ public sealed class DesktopStreamingService : IDisposable
                 }
             }
 
-            // Periodic heartbeat on static screen (1 Hz) to guarantee continuous viewer synchronization
-            if (!isNewFrame && lastJpeg != null && (DateTime.UtcNow - lastSentTime).TotalMilliseconds >= 1000)
+            // Paced frame delivery for high FPS (30, 60, 120 FPS):
+            // Maintain steady pacing when previous frame has been ACKed, and send heartbeat on idle
+            if (!isNewFrame && _latestFrame != null && ((DateTime.UtcNow - lastSentTime).TotalMilliseconds >= frameIntervalMs && Interlocked.Read(ref _sentSequence) == Interlocked.Read(ref _lastAckedSequence) || (DateTime.UtcNow - lastSentTime).TotalMilliseconds >= 1000))
             {
                 lock (_frameLock)
                 {
@@ -500,7 +574,18 @@ public sealed class DesktopStreamingService : IDisposable
             }
 
             // Flow Control: Strictly pace frame delivery to targetFps (20-120 FPS).
-            // Zero-latency in-place drop: if socket is busy sending the previous frame, skip and encode the freshest frame next tick.
+            // Zero-Bufferbloat 1-in-Flight Rate Limiter:
+            // Never push more than 1 frame in flight across the network. If previous frame has not yet been ACKed, wait!
+            if (Interlocked.Read(ref _sentSequence) > Interlocked.Read(ref _lastAckedSequence))
+            {
+                await _ackSignal.WaitAsync(frameIntervalMs, ct);
+                if (Interlocked.Read(ref _sentSequence) > Interlocked.Read(ref _lastAckedSequence))
+                {
+                    // Network is still transmitting previous frame over WAN/tunnel.
+                    // Drop older captured frames in-place to keep TCP send queue at exactly 0 bytes!
+                    continue;
+                }
+            }
             if (Program.IsKillSwitchActive())
             {
                 Console.WriteLine("[!] Remote Streaming KILL SWITCH detected in streamer. Exiting cleanly.");
@@ -555,6 +640,13 @@ public sealed class DesktopStreamingService : IDisposable
                                     await ws.SendAsync(new ArraySegment<byte>(jpeg), WebSocketMessageType.Binary, true, ct);
                                     sendSw.Stop();
                                     _lastSendDurationMs = sendSw.ElapsedMilliseconds;
+
+                                    // Immediately flush any high-priority remote cursor position packet
+                                    byte[]? pendingCursor = Interlocked.Exchange(ref _pendingCursorPacket, null);
+                                    if (pendingCursor != null && ws.State == WebSocketState.Open)
+                                    {
+                                        await ws.SendAsync(new ArraySegment<byte>(pendingCursor), WebSocketMessageType.Binary, true, ct);
+                                    }
 
                                     // Advance sent sequence in sliding window budget
                                     Interlocked.Increment(ref _sentSequence);
@@ -874,16 +966,19 @@ public sealed class DesktopStreamingService : IDisposable
                             true);
 
                         byte[] rawCursorPos = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
+                        _pendingCursorPacket = rawCursorPos;
+                        TriggerImmediateFrame();
                         if (ws.State == WebSocketState.Open)
                         {
-                            bool lockAcquired = await sendLock.WaitAsync(25, ct);
+                            bool lockAcquired = await sendLock.WaitAsync(35, ct);
                             if (lockAcquired)
                             {
                                 try
                                 {
                                     if (ws.State == WebSocketState.Open)
                                     {
-                                        await ws.SendAsync(new ArraySegment<byte>(rawCursorPos), WebSocketMessageType.Binary, true, ct);
+                                        byte[]? toSend = Interlocked.Exchange(ref _pendingCursorPacket, null) ?? rawCursorPos;
+                                        await ws.SendAsync(new ArraySegment<byte>(toSend), WebSocketMessageType.Binary, true, ct);
                                         // Update tracking coordinates only after successful socket transmission
                                         _lastSentCursorX = currentCurX;
                                         _lastSentCursorY = currentCurY;
@@ -908,14 +1003,15 @@ public sealed class DesktopStreamingService : IDisposable
                     byte[] rawCursorPos = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
                     if (ws.State == WebSocketState.Open)
                     {
-                        bool lockAcquired = await sendLock.WaitAsync(25, ct);
+                        bool lockAcquired = await sendLock.WaitAsync(35, ct);
                         if (lockAcquired)
                         {
                             try
                             {
                                 if (ws.State == WebSocketState.Open)
                                 {
-                                    await ws.SendAsync(new ArraySegment<byte>(rawCursorPos), WebSocketMessageType.Binary, true, ct);
+                                    byte[]? toSend = Interlocked.Exchange(ref _pendingCursorPacket, null) ?? rawCursorPos;
+                                    await ws.SendAsync(new ArraySegment<byte>(toSend), WebSocketMessageType.Binary, true, ct);
                                     _lastSentCursorVisible = false;
                                 }
                             }

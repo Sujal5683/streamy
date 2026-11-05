@@ -461,4 +461,75 @@ public class InputAndSessionTests
         Assert.Equal(IpcMessageType.GrantDesktopAccess, deserializedDacl.MessageType);
         Assert.Equal(102u, deserializedDacl.SequenceNumber);
     }
+
+    [Fact]
+    public void MouseInputPacket_CoordinatesPreservedAcrossDecoupledAndLockstepModes()
+    {
+        // Tests 1:1 exact normalized coordinates for Lockstep and Jump-on-Click dispatches
+        float targetX = 0.4567f;
+        float targetY = 0.8901f;
+
+        var movePacket = new MouseInputPacket(
+            InputEventType.MouseMove,
+            MouseButton.None,
+            0,
+            targetX,
+            targetY,
+            0,
+            (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        byte[] serializedMove = DataChannelProtocol.SerializeMouse(in movePacket);
+        Assert.NotNull(serializedMove);
+        Assert.Equal(21, serializedMove.Length);
+
+        bool moveSuccess = DataChannelProtocol.TryDeserializeMouse(serializedMove, out var deserializedMove);
+        Assert.True(moveSuccess);
+        Assert.Equal(InputEventType.MouseMove, deserializedMove.Type);
+        Assert.Equal(targetX, deserializedMove.NormalizedX, 3);
+        Assert.Equal(targetY, deserializedMove.NormalizedY, 3);
+
+        // Click / Jump-on-Click actuation packet
+        var clickPacket = new MouseInputPacket(
+            InputEventType.MouseButtonDown,
+            MouseButton.Left,
+            0,
+            targetX,
+            targetY,
+            0,
+            (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        byte[] serializedClick = DataChannelProtocol.SerializeMouse(in clickPacket);
+        bool clickSuccess = DataChannelProtocol.TryDeserializeMouse(serializedClick, out var deserializedClick);
+        Assert.True(clickSuccess);
+        Assert.Equal(InputEventType.MouseButtonDown, deserializedClick.Type);
+        Assert.Equal(MouseButton.Left, deserializedClick.Button);
+        Assert.Equal(targetX, deserializedClick.NormalizedX, 3);
+        Assert.Equal(targetY, deserializedClick.NormalizedY, 3);
+    }
+
+    [Fact]
+    public void CursorPositionPacket_SerializesAccuratelyForDualAndLockstepModes()
+    {
+        var cursorPacket = new CursorPositionPacket(
+            960,
+            540,
+            1920,
+            1080,
+            RemoteCursorShape.Hand,
+            true);
+
+        byte[] serialized = DataChannelProtocol.SerializeCursorPosition(in cursorPacket);
+        Assert.NotNull(serialized);
+        Assert.Equal(11, serialized.Length);
+        Assert.Equal(0x53, serialized[0]); // CursorPosition packet type ID
+
+        bool success = DataChannelProtocol.TryDeserializeCursorPosition(serialized, out var deserialized);
+        Assert.True(success);
+        Assert.Equal(960, deserialized.X);
+        Assert.Equal(540, deserialized.Y);
+        Assert.Equal(1920, deserialized.DisplayWidth);
+        Assert.Equal(1080, deserialized.DisplayHeight);
+        Assert.Equal(RemoteCursorShape.Hand, deserialized.Shape);
+        Assert.True(deserialized.Visible);
+    }
 }

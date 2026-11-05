@@ -26,7 +26,23 @@ class WebControllerApp {
 
         // Stream and Input Engines
         this.canvas = document.getElementById('viewportCanvas');
+        let initialFps = 60;
+        let initialQuality = 75;
+        let initialMaxHeight = 720;
+        try {
+            const rawCfg = localStorage.getItem('ER_STREAM_CONFIG');
+            if (rawCfg) {
+                const parsed = JSON.parse(rawCfg);
+                if (parsed.fps) initialFps = parsed.fps;
+                if (parsed.quality) initialQuality = parsed.quality;
+                if (parsed.maxHeight !== undefined) initialMaxHeight = parsed.maxHeight;
+            }
+        } catch { }
+
         this.streamClient = new RemoteStreamClient(this.canvas, {
+            targetFps: initialFps,
+            quality: initialQuality,
+            maxHeight: initialMaxHeight,
             onStatusChange: (status, message) => this.onStreamStatusChange(status, message),
             onHostStatus: (isLive) => this.onHostStatus(isLive),
             onTelemetry: (telemetry) => this.onTelemetryUpdate(telemetry),
@@ -52,6 +68,9 @@ class WebControllerApp {
         // Clipboard Sync State
         this.clipboardSyncEnabled = true;
         this.lastClipboardText = '';
+
+        // Mouse Cursor Streaming Mode State ('synchronized' | 'dual' | 'jump_on_click')
+        this.mouseMode = localStorage.getItem('ER_MOUSE_MODE') || 'dual';
 
         // UI Element References
         this.dom = {
@@ -117,6 +136,16 @@ class WebControllerApp {
             screenSelectorBtn: document.getElementById('btn-screen-selector'),
             screenSelectorLabel: document.getElementById('label-screen-selector'),
             screenSelectorMenu: document.getElementById('menu-screen-selector'),
+
+            // Mouse Mode Selector
+            btnMouseModeSelector: document.getElementById('btn-mouse-mode-selector'),
+            labelMouseModeSelector: document.getElementById('label-mouse-mode-selector'),
+            menuMouseModeSelector: document.getElementById('menu-mouse-mode-selector'),
+            btnFloatMouseMode: document.getElementById('btn-float-mouse-mode'),
+            menuFloatMouseMode: document.getElementById('menu-float-mouse-mode'),
+            radioMouseModeSync: document.getElementById('radio-mouse-mode-sync'),
+            radioMouseModeDual: document.getElementById('radio-mouse-mode-dual'),
+            radioMouseModeJump: document.getElementById('radio-mouse-mode-jump'),
 
             // Quick Keys & Stream Config Popover
             quickActionsBtn: document.getElementById('btn-quick-actions'),
@@ -312,6 +341,7 @@ class WebControllerApp {
         this.initCanvasSize();
         this.bindEvents();
         this.restoreSavedStreamConfig();
+        this.setMouseMode(this.mouseMode, false);
         this.initIslandDraggable();
         this.initAuthAndDevices();
         this.initClipboardListener();
@@ -354,6 +384,10 @@ class WebControllerApp {
             if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
                 this.canvas.width = Math.round(w * dpr);
                 this.canvas.height = Math.round(h * dpr);
+                if (this.streamClient?.ctx) {
+                    this.streamClient.ctx.imageSmoothingEnabled = true;
+                    this.streamClient.ctx.imageSmoothingQuality = 'high';
+                }
                 if (this.streamClient.latestBitmap) {
                     this.streamClient.drawFrame(this.streamClient.latestBitmap);
                 }
@@ -369,6 +403,10 @@ class WebControllerApp {
             if (this.canvas.width !== Math.round(w * dpr) || this.canvas.height !== Math.round(h * dpr)) {
                 this.canvas.width = Math.round(w * dpr);
                 this.canvas.height = Math.round(h * dpr);
+                if (this.streamClient?.ctx) {
+                    this.streamClient.ctx.imageSmoothingEnabled = true;
+                    this.streamClient.ctx.imageSmoothingQuality = 'high';
+                }
                 if (this.streamClient.latestBitmap) {
                     this.streamClient.drawFrame(this.streamClient.latestBitmap);
                 }
@@ -1013,8 +1051,29 @@ class WebControllerApp {
 
         // Dropdown Toggles (Header Bar)
         this.dom.screenSelectorBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.screenSelectorBtn, this.dom.screenSelectorMenu); });
+        if (this.dom.btnMouseModeSelector && this.dom.menuMouseModeSelector) {
+            this.dom.btnMouseModeSelector.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.btnMouseModeSelector, this.dom.menuMouseModeSelector); });
+            this.dom.menuMouseModeSelector.addEventListener('click', (e) => {
+                const item = e.target.closest('[data-mouse-mode]');
+                if (!item) return;
+                const mode = item.getAttribute('data-mouse-mode');
+                if (mode) {
+                    this.setMouseMode(mode, true);
+                    this.dom.menuMouseModeSelector.classList.remove('show');
+                }
+            });
+        }
         this.dom.quickActionsBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.quickActionsBtn, this.dom.quickActionsMenu); });
         this.dom.configBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMenu(this.dom.configBtn, this.dom.configMenu); });
+
+        // Settings Modal Mouse Mode Radio Cards
+        document.querySelectorAll('input[name="setting-mouse-mode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    this.setMouseMode(e.target.value, true);
+                }
+            });
+        });
 
         // Dropdown Protection: Clicks inside dropdown menus or triggers must never dismiss them
         document.querySelectorAll('.dropdown-menu').forEach(menu => {
@@ -1127,6 +1186,27 @@ class WebControllerApp {
                 this.streamClient.sendSwitchDesktop(this.selectedDisplayIndex, this.isAutoFollow, this.selectedDesktopName);
                 this.showToast(`Switched to ${this.dom.btnFloatScreens.textContent.replace(' ▾', '')}`, 'info');
                 this.dom.menuFloatScreens.classList.remove('show');
+            });
+        }
+
+        // Floating Island Mouse Mode Menu
+        if (this.dom.btnFloatMouseMode && this.dom.menuFloatMouseMode) {
+            this.dom.btnFloatMouseMode.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isShowing = this.dom.menuFloatMouseMode.classList.contains('show');
+                if (this.dom.menuFloatScreens) this.dom.menuFloatScreens.classList.remove('show');
+                if (this.dom.menuFloatQuick) this.dom.menuFloatQuick.classList.remove('show');
+                this.dom.menuFloatMouseMode.classList.toggle('show', !isShowing);
+            });
+
+            this.dom.menuFloatMouseMode.addEventListener('click', (e) => {
+                const item = e.target.closest('[data-mouse-mode]');
+                if (!item) return;
+                const mode = item.getAttribute('data-mouse-mode');
+                if (mode) {
+                    this.setMouseMode(mode, true);
+                    this.dom.menuFloatMouseMode.classList.remove('show');
+                }
             });
         }
 
@@ -3293,7 +3373,80 @@ class WebControllerApp {
 
     onCursorChange(cssCursor) {
         if (this.inputHandler.inputEnabled) {
-            this.canvas.style.cursor = cssCursor;
+            if (this.mouseMode === 'synchronized') {
+                this.canvas.style.cursor = 'none';
+            } else {
+                this.canvas.style.cursor = cssCursor;
+            }
+        }
+    }
+
+    setMouseMode(mode, showToastFeedback = true) {
+        if (!['synchronized', 'dual', 'jump_on_click'].includes(mode)) {
+            mode = 'dual';
+        }
+        this.mouseMode = mode;
+        try { localStorage.setItem('ER_MOUSE_MODE', mode); } catch { }
+
+        // Propagate to Input Engine & Canvas Streamer
+        if (this.inputHandler) this.inputHandler.setMouseMode(mode);
+        if (this.streamClient) this.streamClient.setMouseMode(mode);
+
+        if (mode === 'synchronized' && this.canvas) {
+            this.canvas.style.cursor = 'none';
+        } else if (this.canvas) {
+            this.canvas.style.cursor = 'default';
+        }
+
+        // Update Settings Modal Radios & Active Card Classes
+        if (this.dom.radioMouseModeSync) this.dom.radioMouseModeSync.checked = (mode === 'synchronized');
+        if (this.dom.radioMouseModeDual) this.dom.radioMouseModeDual.checked = (mode === 'dual');
+        if (this.dom.radioMouseModeJump) this.dom.radioMouseModeJump.checked = (mode === 'jump_on_click');
+
+        document.querySelectorAll('.mouse-mode-card').forEach(card => {
+            const input = card.querySelector('input[name="setting-mouse-mode"]');
+            if (input && input.value === mode) {
+                card.classList.add('active');
+            } else {
+                card.classList.remove('active');
+            }
+        });
+
+        // Update Top Toolbar Selector Button Label
+        let labelText = 'Cursor: Dual ▾';
+        let toastText = 'Mouse Mode: Dual Independent Cursors active';
+        if (mode === 'synchronized') {
+            labelText = 'Cursor: 1:1 Sync ▾';
+            toastText = 'Mouse Mode: 1:1 Synchronized Lockstep active';
+        } else if (mode === 'jump_on_click') {
+            labelText = 'Cursor: Jump ▾';
+            toastText = 'Mouse Mode: Stealth Jump-on-Click active';
+        }
+
+        if (this.dom.labelMouseModeSelector) {
+            this.dom.labelMouseModeSelector.textContent = labelText;
+        }
+
+        if (this.dom.btnFloatMouseMode) {
+            if (mode === 'synchronized') this.dom.btnFloatMouseMode.textContent = '1:1 Sync ▾';
+            else if (mode === 'jump_on_click') this.dom.btnFloatMouseMode.textContent = 'Jump-on-Click ▾';
+            else this.dom.btnFloatMouseMode.textContent = 'Dual Cursor ▾';
+        }
+
+        // Update dropdown item active states
+        [this.dom.menuMouseModeSelector, this.dom.menuFloatMouseMode].forEach(menu => {
+            if (!menu) return;
+            menu.querySelectorAll('[data-mouse-mode]').forEach(btn => {
+                if (btn.getAttribute('data-mouse-mode') === mode) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        });
+
+        if (showToastFeedback) {
+            this.showToast(toastText, 'info');
         }
     }
 

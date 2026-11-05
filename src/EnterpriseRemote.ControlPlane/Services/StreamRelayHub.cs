@@ -377,6 +377,13 @@ public static class StreamRelayHub
 
 
 
+                // Zero-Bufferbloat Rate Limiting: If a frame is currently in transit to this viewer over WAN,
+                // wait for FrameAck from viewer before sending the next frame.
+                if (viewerCtx.IsViewerFrameInFlight)
+                {
+                    await viewerCtx.AckSignal.WaitAsync(45, ct);
+                }
+
                 // Drain to get the latest frame if multiple arrived, ensuring zero latency
                 byte[]? frameToSend = null;
                 while (channel.Reader.TryRead(out var item))
@@ -386,6 +393,7 @@ public static class StreamRelayHub
 
                 if (frameToSend != null && viewerWs.State == WebSocketState.Open)
                 {
+                    viewerCtx.IsViewerFrameInFlight = true;
                     await viewerCtx.SendLock.WaitAsync(ct);
                     try
                     {

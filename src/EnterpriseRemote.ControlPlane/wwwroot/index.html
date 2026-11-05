@@ -266,6 +266,31 @@
                     </div>
                 </div>
 
+                <!-- Mouse Cursor Streaming Mode Switcher -->
+                <div class="dropdown-wrapper">
+                    <button id="btn-mouse-mode-selector" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="Switch Mouse Cursor Streaming Mode" aria-label="Switch Mouse Cursor Mode">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M13.64 21.97c-.32.14-.69.04-.9-.23l-3.21-4.14-2.88 2.05c-.27.19-.64.18-.9-.03-.26-.21-.36-.56-.25-.87l4.5-13.5c.11-.33.39-.55.74-.55.34 0 .63.22.74.55l4.5 13.5c.11.33 0 .69-.26.9-.13.11-.29.17-.46.17-.11 0-.23-.03-.34-.08l-2.02-.87 1.28 2.22c.16.28.1.64-.14.89z"/>
+                        </svg>
+                        <span id="label-mouse-mode-selector" class="btn-text-responsive">Cursor: Dual ▾</span>
+                    </button>
+                    <div id="menu-mouse-mode-selector" class="dropdown-menu">
+                        <div class="dropdown-section-title">MOUSE STREAMING MODES</div>
+                        <button class="dropdown-item" data-mouse-mode="synchronized" title="Both devices share a single unified cursor at identical coordinates in real time">
+                            <span>🔗 Synchronized Lockstep (1:1)</span>
+                            <span class="dropdown-shortcut">Exact Mirror</span>
+                        </button>
+                        <button class="dropdown-item active" data-mouse-mode="dual" title="Both users have distinct visible cursors; remote cursor smoothly tracks viewer navigation and hover states">
+                            <span>👥 Dual Independent Cursors</span>
+                            <span class="dropdown-shortcut">Default</span>
+                        </button>
+                        <button class="dropdown-item" data-mouse-mode="jump_on_click" title="Moving mouse does not move remote cursor; remote cursor instantly jumps to target on click">
+                            <span>🎯 Stealth Jump-on-Click</span>
+                            <span class="dropdown-shortcut">Decoupled</span>
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Quick Actions Menu -->
                 <div class="dropdown-wrapper">
                     <button id="btn-quick-actions" class="cyber-btn cyber-btn-outline toolbar-compact-btn" title="System Shortcuts & Key Injections" aria-label="System Shortcuts and Keys">
@@ -731,6 +756,24 @@
                     </div>
 
                     <div class="dropdown-wrapper">
+                        <button id="btn-float-mouse-mode" class="island-btn" title="Switch Mouse Cursor Mode">
+                            Cursor ▾
+                        </button>
+                        <div id="menu-float-mouse-mode" class="dropdown-menu island-dropdown-menu">
+                            <div class="dropdown-section-title">MOUSE STREAMING MODES</div>
+                            <button class="dropdown-item" data-mouse-mode="synchronized">
+                                <span>🔗 Synchronized (1:1)</span>
+                            </button>
+                            <button class="dropdown-item active" data-mouse-mode="dual">
+                                <span>👥 Dual Cursors</span>
+                            </button>
+                            <button class="dropdown-item" data-mouse-mode="jump_on_click">
+                                <span>🎯 Jump-on-Click</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="dropdown-wrapper">
                         <button id="btn-float-quick" class="island-btn" title="Quick Key Injections">
                             Keys ▾
                         </button>
@@ -1139,6 +1182,55 @@
                 <!-- Tab 2: Input & Security -->
                 <div id="tab-settings-input" class="modal-tab-pane">
                     <div class="settings-form">
+                        <div class="form-section-title">MOUSE CURSOR STREAMING MODES</div>
+                        <p style="font-size: 11px; color: var(--text-secondary); margin: -4px 0 12px 0; line-height: 1.4;">
+                            Configure how mouse cursor movement and click actions synchronize between your device and the remote workstation:
+                        </p>
+
+                        <div class="mouse-modes-grid">
+                            <!-- Mode 1: Synchronized Lockstep -->
+                            <label class="mouse-mode-card" for="radio-mouse-mode-sync">
+                                <div class="mouse-mode-radio-header">
+                                    <input type="radio" id="radio-mouse-mode-sync" name="setting-mouse-mode" value="synchronized" class="cyber-radio" />
+                                    <div class="mouse-mode-title-group">
+                                        <span class="mouse-mode-title">🔗 Synchronized Hardware Cursor (1:1 Lockstep)</span>
+                                        <span class="mouse-mode-badge badge-mirror">1:1 Lockstep Mirror</span>
+                                    </div>
+                                </div>
+                                <p class="mouse-mode-desc">
+                                    Both devices share a single unified cursor at identical coordinates in real time. Perfect for hands-on collaboration, live training, and exact 1:1 coordinate matching.
+                                </p>
+                            </label>
+
+                            <!-- Mode 2: Dual Independent Cursors -->
+                            <label class="mouse-mode-card active" for="radio-mouse-mode-dual">
+                                <div class="mouse-mode-radio-header">
+                                    <input type="radio" id="radio-mouse-mode-dual" name="setting-mouse-mode" value="dual" class="cyber-radio" checked />
+                                    <div class="mouse-mode-title-group">
+                                        <span class="mouse-mode-title">👥 Dual Independent Cursors (Smooth Control)</span>
+                                        <span class="mouse-mode-badge badge-collab">Collaborative</span>
+                                    </div>
+                                </div>
+                                <p class="mouse-mode-desc">
+                                    Both users have distinct visible cursors. The remote cursor smoothly tracks viewer navigation and hover states, allowing both parties to work cooperatively without cursor fighting.
+                                </p>
+                            </label>
+
+                            <!-- Mode 3: Stealth Jump-on-Click -->
+                            <label class="mouse-mode-card" for="radio-mouse-mode-jump">
+                                <div class="mouse-mode-radio-header">
+                                    <input type="radio" id="radio-mouse-mode-jump" name="setting-mouse-mode" value="jump_on_click" class="cyber-radio" />
+                                    <div class="mouse-mode-title-group">
+                                        <span class="mouse-mode-title">🎯 Stealth Jump-on-Click (Decoupled Hover)</span>
+                                        <span class="mouse-mode-badge badge-stealth">Non-Intrusive</span>
+                                    </div>
+                                </div>
+                                <p class="mouse-mode-desc">
+                                    Moving your mouse does not move the remote cursor. The remote cursor instantly jumps to the target position only when you click or interact. Ideal for non-intrusive monitoring and stealth assistance.
+                                </p>
+                            </label>
+                        </div>
+
                         <div class="form-section-title">PERIPHERAL & CLIPBOARD CONTROLS</div>
 
                         <div class="form-row toggle-row">
@@ -1246,6 +1338,6 @@
     </div>
 
     <!-- Application Script Entry Point -->
-    <script type="module" src="js/app.js?v=20261103_v2"></script>
+    <script type="module" src="js/app.js?v=20261105_mouse_modes"></script>
 </body>
 </html>
